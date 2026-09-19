@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
+from urllib.parse import quote, unquote
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
@@ -75,6 +76,7 @@ class Worker(QRunnable):
 class DiffViewer(QTextBrowser):
     line_selected = Signal(int)
     escape_pressed = Signal()
+    thread_action = Signal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -94,6 +96,17 @@ class DiffViewer(QTextBrowser):
             f'<div class="{class_name}">'
             f'<div class="comment-meta"><span class="comment-dot">●</span> {html.escape(author)}{state}</div>'
             f'<div>{body_html}</div>'
+            "</div>"
+        )
+
+    def _thread_actions(self, thread: ReviewThread) -> str:
+        thread_id = quote(thread.thread_id, safe="")
+        resolve_label = "Unresolve" if thread.resolved else "Resolve"
+        button_style = "color:#374151; background-color:#f3f4f6;"
+        return (
+            '<div class="thread-actions">'
+            f'<a href="action:reply:{thread_id}"><span style="{button_style}">&#160;&#160;Reply&#160;&#160;</span></a>&#160;&#160;'
+            f'<a href="action:toggle:{thread_id}"><span style="{button_style}">&#160;&#160;{resolve_label}&#160;&#160;</span></a>'
             "</div>"
         )
 
@@ -121,6 +134,7 @@ class DiffViewer(QTextBrowser):
             for thread in unanchored_threads:
                 for comment in thread.comments:
                     rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
+                rendered.append(self._thread_actions(thread))
         for index, line in enumerate(file.lines):
             old = str(line.old_line) if line.old_line is not None else ""
             new = str(line.new_line) if line.new_line is not None else ""
@@ -140,6 +154,7 @@ class DiffViewer(QTextBrowser):
             for thread in threads_by_line.get(key, []):
                 for comment in thread.comments:
                     rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
+                rendered.append(self._thread_actions(thread))
         if not rendered:
             rendered.append('<div class="empty-diff">No textual patch is available for this file.</div>')
         self.lines = file.lines
@@ -154,6 +169,9 @@ class DiffViewer(QTextBrowser):
             ".inline-comment.resolved { border-left-color: #94a3b8; background: #f8fafc; color: #475569; }"
             ".comment-meta { font-weight: 600; margin-bottom: 3px; }"
             ".comment-dot { color: #c026d3; }"
+            ".thread-actions { margin: -4px 14px 10px 78px; white-space: normal; }"
+            ".thread-actions a { display: inline-block; margin-right: 8px; padding: 4px 12px; border: 1px solid #d1d5db; border-radius: 6px; background: #f3f4f6; color: #374151; font-family: -apple-system; font-size: 11pt; text-decoration: none; }"
+            ".thread-actions a:hover { background: #e5e7eb; border-color: #9ca3af; }"
             ".empty-diff { color: #6b7280; padding: 8px; }"
             "</style>"
             + "".join(rendered)
@@ -169,6 +187,10 @@ class DiffViewer(QTextBrowser):
     @Slot(QUrl)
     def _anchor_clicked(self, url: QUrl) -> None:
         value = url.toString()
+        if value.startswith("action:"):
+            _, action, thread_id = value.split(":", 2)
+            self.thread_action.emit(unquote(thread_id), action)
+            return
         if not value.startswith("line:"):
             return
         index = int(value.removeprefix("line:"))
@@ -568,6 +590,7 @@ class MainWindow(QMainWindow):
         content_layout.addLayout(diff_toolbar)
         self.diff_viewer = DiffViewer()
         self.diff_viewer.line_selected.connect(self._line_selected)
+        self.diff_viewer.thread_action.connect(self._thread_action_requested)
         self.diff_viewer.escape_pressed.connect(self.show_canvas)
         content_layout.addWidget(self.diff_viewer, 1)
 
@@ -822,6 +845,18 @@ class MainWindow(QMainWindow):
         self._set_busy(False)
         self.status_label.setText("Review submitted")
         self.refresh()
+
+    @Slot(str, str)
+    def _thread_action_requested(self, thread_id: str, action: str) -> None:
+        thread = next((item for item in self.threads if item.thread_id == thread_id), None)
+        if not thread:
+            logger.warning("Requested action for unknown thread thread_id=%s", thread_id)
+            return
+        self.selected_thread = thread
+        if action == "reply":
+            self.reply_to_selected_thread()
+        elif action == "toggle":
+            self.toggle_selected_thread()
 
     def reply_to_selected_thread(self) -> None:
         logger.info("Reply requested has_thread=%s", bool(self.selected_thread))
