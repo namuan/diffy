@@ -648,11 +648,16 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.refresh_button)
         root_layout.addLayout(toolbar)
 
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(4, 0, 4, 0)
         self.title_label = QLabel("Open a pull request to begin")
         self.title_label.setStyleSheet("font-size: 18px; font-weight: 600; padding: 4px;")
         self.status_label = QLabel("Ready")
-        root_layout.addWidget(self.title_label)
-        root_layout.addWidget(self.status_label)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.status_label.setStyleSheet("color: #475569; padding: 4px;")
+        header_layout.addWidget(self.title_label, 1)
+        header_layout.addWidget(self.status_label)
+        root_layout.addLayout(header_layout)
 
         self.view_stack = QStackedWidget()
         canvas_page = QWidget()
