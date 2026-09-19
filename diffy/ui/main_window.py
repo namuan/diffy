@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -75,6 +76,7 @@ class Worker(QRunnable):
 
 class DiffViewer(QTextBrowser):
     line_selected = Signal(int)
+    comment_requested = Signal(int)
     escape_pressed = Signal()
     thread_action = Signal(str, str)
 
@@ -83,9 +85,12 @@ class DiffViewer(QTextBrowser):
         self.setOpenLinks(False)
         self.setOpenExternalLinks(False)
         self.anchorClicked.connect(self._anchor_clicked)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._context_menu_requested)
         self.setFont(QFont("SF Mono", 12))
         self.setStyleSheet("QTextBrowser { background: #ffffff; color: #111827; border: 0; }")
         self.lines = []
+        self.file_path = ""
         self.selected_index: int | None = None
 
     def _inline_comment(self, author: str, body: str, resolved: bool = False) -> str:
@@ -111,6 +116,7 @@ class DiffViewer(QTextBrowser):
         )
 
     def show_file(self, file: ChangedFile, drafts: list[DraftComment], threads: list[ReviewThread]) -> None:
+        self.file_path = file.path
         logger.debug("Rendering focused diff path=%s lines=%d drafts=%d threads=%d", file.path, len(file.lines), len(drafts), len(threads))
         drafts_by_line: dict[tuple[str, int | None], list[DraftComment]] = {}
         for draft in drafts:
@@ -176,6 +182,26 @@ class DiffViewer(QTextBrowser):
             "</style>"
             + "".join(rendered)
         )
+
+    def _context_menu_requested(self, position) -> None:
+        value = self.anchorAt(position)
+        if not value.startswith("line:"):
+            return
+        index = int(value.removeprefix("line:"))
+        if not 0 <= index < len(self.lines):
+            return
+        line = self.lines[index]
+        self.selected_index = index
+        self.line_selected.emit(index)
+        line_number = line.line or line.old_line or 0
+        menu = QMenu(self)
+        comment_action = menu.addAction("Comment")
+        copy_action = menu.addAction(f"Copy {self.file_path}:{line_number}")
+        chosen = menu.exec(self.viewport().mapToGlobal(position))
+        if chosen == comment_action:
+            self.comment_requested.emit(index)
+        elif chosen == copy_action:
+            QApplication.clipboard().setText(f"{self.file_path}:{line_number}")
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
@@ -590,6 +616,7 @@ class MainWindow(QMainWindow):
         content_layout.addLayout(diff_toolbar)
         self.diff_viewer = DiffViewer()
         self.diff_viewer.line_selected.connect(self._line_selected)
+        self.diff_viewer.comment_requested.connect(self._comment_requested)
         self.diff_viewer.thread_action.connect(self._thread_action_requested)
         self.diff_viewer.escape_pressed.connect(self.show_canvas)
         content_layout.addWidget(self.diff_viewer, 1)
@@ -769,6 +796,11 @@ class MainWindow(QMainWindow):
             if item.data(Qt.ItemDataRole.UserRole) == path:
                 self.file_list.setCurrentItem(item)
                 break
+
+    @Slot(int)
+    def _comment_requested(self, index: int) -> None:
+        self.selected_line_index = index
+        self.add_comment()
 
     @Slot(int)
     def _line_selected(self, index: int) -> None:

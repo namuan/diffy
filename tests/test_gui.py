@@ -86,6 +86,8 @@ class GuiIntegrationTest(unittest.TestCase):
             window.open_diff(comment_thread.path)
             rendered_diff = window.diff_viewer.toHtml()
             self.assertIn(comment_thread.comments[0].author, rendered_diff)
+            self.assertIn("action:reply:", rendered_diff)
+            self.assertTrue("Resolve" in rendered_diff or "Unresolve" in rendered_diff)
             self.assertIn("#c026d3", rendered_diff)
             file_comment_thread = next(thread for thread in window.threads if thread.comments and thread.line is None)
             window.open_diff(file_comment_thread.path)
