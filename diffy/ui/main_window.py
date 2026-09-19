@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import html
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import quote, unquote
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
+from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QIcon, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -40,6 +42,11 @@ from diffy.ui.tree_node import TreeNodeWidget
 
 
 logger = get_logger("main_window")
+
+
+def _asset_path(name: str) -> Path:
+    bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    return bundle_root / "assets" / name
 
 
 class WorkerSignals(QObject):
@@ -626,6 +633,7 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         self.setWindowTitle("diffy")
+        self.setWindowIcon(QIcon(str(_asset_path("logo.png"))))
         self.resize(1450, 950)
         self.setMinimumSize(1050, 700)
         self._build_actions()
@@ -903,6 +911,7 @@ def apply_light_palette(application: QApplication) -> None:
 def create_application(arguments: list[str]) -> tuple[QApplication, MainWindow]:
     logger.info("Creating QApplication argument_count=%d", len(arguments))
     application = QApplication(arguments)
+    application.setWindowIcon(QIcon(str(_asset_path("logo.png"))))
     apply_light_palette(application)
     application.setApplicationName("diffy")
     application.setOrganizationName("diffy")

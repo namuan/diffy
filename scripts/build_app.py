@@ -27,6 +27,7 @@ def build() -> None:
         f"--name={app_name}",
         f"--osx-bundle-identifier={bundle_id}",
         "--target-architecture=arm64",
+        f"--add-data={root_dir / 'assets' / 'logo.png'}:assets",
         str(entry_point),
     ]
     if icon_path.exists():
