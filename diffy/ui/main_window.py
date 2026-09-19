@@ -8,31 +8,24 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, QUrl, Si
 from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QGraphicsProxyWidget,
     QGraphicsScene,
     QGraphicsView,
-    QGroupBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSplitter,
     QStackedWidget,
     QTextBrowser,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -578,33 +571,6 @@ class MainWindow(QMainWindow):
         canvas_layout.addWidget(self.canvas)
         self.view_stack.addWidget(canvas_page)
 
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        sidebar = QWidget()
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(0, 0, 8, 0)
-        file_group = QGroupBox("Files")
-        file_layout = QVBoxLayout(file_group)
-        self.file_list = QListWidget()
-        self.file_list.currentItemChanged.connect(self._file_item_changed)
-        file_layout.addWidget(self.file_list)
-        sidebar_layout.addWidget(file_group, 3)
-        thread_group = QGroupBox("Threads")
-        thread_layout = QVBoxLayout(thread_group)
-        self.thread_list = QListWidget()
-        self.thread_list.currentItemChanged.connect(self._thread_item_changed)
-        thread_layout.addWidget(self.thread_list)
-        thread_actions = QHBoxLayout()
-        self.reply_button = QPushButton("Reply")
-        self.resolve_button = QPushButton("Resolve")
-        self.reply_button.clicked.connect(self.reply_to_selected_thread)
-        self.resolve_button.clicked.connect(self.toggle_selected_thread)
-        thread_actions.addWidget(self.reply_button)
-        thread_actions.addWidget(self.resolve_button)
-        thread_layout.addLayout(thread_actions)
-        sidebar_layout.addWidget(thread_group, 2)
-        sidebar.setMinimumWidth(270)
-        main_splitter.addWidget(sidebar)
-
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -621,38 +587,11 @@ class MainWindow(QMainWindow):
         self.diff_viewer.escape_pressed.connect(self.show_canvas)
         content_layout.addWidget(self.diff_viewer, 1)
 
-        review_group = QGroupBox("Review")
-        review_layout = QVBoxLayout(review_group)
-        draft_row = QHBoxLayout()
-        self.add_comment_button = QPushButton("Add comment on selected line")
-        self.delete_draft_button = QPushButton("Delete selected draft")
-        self.add_comment_button.clicked.connect(self.add_comment)
-        self.delete_draft_button.clicked.connect(self.delete_selected_draft)
-        draft_row.addWidget(self.add_comment_button)
-        draft_row.addWidget(self.delete_draft_button)
-        self.draft_list = QListWidget()
-        self.draft_list.setMaximumHeight(100)
-        draft_row.addWidget(self.draft_list, 1)
-        review_layout.addLayout(draft_row)
-        form_row = QHBoxLayout()
-        self.review_event = QComboBox()
-        self.review_event.addItems(["COMMENT", "APPROVE", "REQUEST_CHANGES"])
-        self.review_body = QTextEdit()
-        self.review_body.setPlaceholderText("Review summary")
-        self.review_body.setMaximumHeight(68)
-        self.submit_button = QPushButton("Submit review")
-        self.submit_button.clicked.connect(self.submit_review)
-        form_row.addWidget(self.review_event)
-        form_row.addWidget(self.review_body, 1)
-        form_row.addWidget(self.submit_button)
-        review_layout.addLayout(form_row)
-        content_layout.addWidget(review_group)
-        main_splitter.addWidget(content)
-        main_splitter.setSizes([290, 1100])
+
         diff_page = QWidget()
         diff_page_layout = QVBoxLayout(diff_page)
         diff_page_layout.setContentsMargins(0, 0, 0, 0)
-        diff_page_layout.addWidget(main_splitter)
+        diff_page_layout.addWidget(content)
         self.view_stack.addWidget(diff_page)
         root_layout.addWidget(self.view_stack, 1)
         self.escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
@@ -669,7 +608,6 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         self.open_button.setEnabled(not busy)
         self.refresh_button.setEnabled(not busy)
-        self.submit_button.setEnabled(not busy)
         self.status_label.setText("Loading…" if busy else self.status_label.text())
 
     def open_reference(self) -> None:
@@ -730,37 +668,13 @@ class MainWindow(QMainWindow):
         if not self.pull_request:
             return
         self.title_label.setText(f"#{self.pull_request.ref.number} {self.pull_request.title}")
-        self.file_list.clear()
         draft_counts: dict[str, int] = {}
         for draft in self.drafts:
             draft_counts[draft.path] = draft_counts.get(draft.path, 0) + 1
-        for file in self.files:
-            item = QListWidgetItem(f"{file.path}   +{file.additions} -{file.deletions}")
-            item.setData(Qt.ItemDataRole.UserRole, file.path)
-            if file.path in self.viewed:
-                item.setForeground(Qt.GlobalColor.gray)
-            if draft_counts.get(file.path):
-                item.setToolTip(f"{draft_counts[file.path]} draft comment(s)")
-            self.file_list.addItem(item)
-        self.thread_list.clear()
-        for thread in self.threads:
-            state = "resolved" if thread.resolved else "open"
-            line = thread.line or thread.start_line or 0
-            item = QListWidgetItem(f"{thread.path}:{line} · {state} · {len(thread.comments)}")
-            item.setData(Qt.ItemDataRole.UserRole, thread.thread_id)
-            self.thread_list.addItem(item)
-        self.draft_list.clear()
-        for draft in self.drafts:
-            state = "orphaned" if draft.orphaned else f"{draft.side.lower()}:{draft.line}"
-            item = QListWidgetItem(f"{draft.path}:{state} · {draft.body[:70]}")
-            item.setData(Qt.ItemDataRole.UserRole, draft.id)
-            self.draft_list.addItem(item)
         comment_counts: dict[str, int] = {}
         for thread in self.threads:
             comment_counts[thread.path] = comment_counts.get(thread.path, 0) + len(thread.comments)
         self.canvas.set_files(self.files, self.viewed, draft_counts, comment_counts)
-        if self.files:
-            self.file_list.setCurrentRow(0)
         self.show_canvas()
 
     def open_diff(self, path: str) -> None:
@@ -774,11 +688,6 @@ class MainWindow(QMainWindow):
         self.view_stack.setCurrentIndex(0)
         self.canvas.setFocus()
 
-    @Slot(QListWidgetItem, QListWidgetItem)
-    def _file_item_changed(self, current: QListWidgetItem | None, previous: QListWidgetItem | None) -> None:
-        if current:
-            self.select_file(current.data(Qt.ItemDataRole.UserRole))
-
     def select_file(self, path: str) -> None:
         logger.debug("Selecting file path=%s", path)
         file = next((item for item in self.files if item.path == path), None)
@@ -791,11 +700,6 @@ class MainWindow(QMainWindow):
             self.viewed.add(path)
             self.persistence.mark_viewed(self.pull_request.ref.key, path)
         self.diff_viewer.show_file(file, self.drafts, self.threads)
-        for index in range(self.file_list.count()):
-            item = self.file_list.item(index)
-            if item.data(Qt.ItemDataRole.UserRole) == path:
-                self.file_list.setCurrentItem(item)
-                break
 
     @Slot(int)
     def _comment_requested(self, index: int) -> None:
@@ -808,15 +712,6 @@ class MainWindow(QMainWindow):
         if self.selected_file and 0 <= index < len(self.selected_file.lines):
             line = self.selected_file.lines[index]
             self.status_label.setText(f"Selected {self.selected_file.path}:{line.line} ({line.side.lower()})")
-
-    @Slot(QListWidgetItem, QListWidgetItem)
-    def _thread_item_changed(self, current: QListWidgetItem | None, previous: QListWidgetItem | None) -> None:
-        self.selected_thread = None
-        if current:
-            thread_id = current.data(Qt.ItemDataRole.UserRole)
-            self.selected_thread = next((thread for thread in self.threads if thread.thread_id == thread_id), None)
-            if self.selected_thread:
-                self.select_file(self.selected_thread.path)
 
     def add_comment(self) -> None:
         logger.info("Add comment requested file=%s line_index=%s", self.selected_file.path if self.selected_file else None, self.selected_line_index)
@@ -837,46 +732,6 @@ class MainWindow(QMainWindow):
         logger.info("Draft comment added id=%s path=%s line=%s", draft.id, draft.path, draft.line)
         self._render_loaded_state()
         self.select_file(self.selected_file.path)
-
-    def delete_selected_draft(self) -> None:
-        logger.info("Delete draft requested")
-        item = self.draft_list.currentItem()
-        if not item:
-            return
-        draft_id = item.data(Qt.ItemDataRole.UserRole)
-        self.persistence.delete_draft(draft_id)
-        self.drafts = [draft for draft in self.drafts if draft.id != draft_id]
-        self._render_loaded_state()
-
-    def submit_review(self) -> None:
-        logger.info("Submit review requested has_pull_request=%s draft_count=%d", bool(self.pull_request), len(self.drafts))
-        if not self.pull_request:
-            return
-        active = [draft for draft in self.drafts if not draft.orphaned]
-        if any(draft.orphaned for draft in self.drafts):
-            QMessageBox.information(self, "Orphaned drafts", "Orphaned drafts are excluded from submission.")
-        event = self.review_event.currentText()
-        body = self.review_body.toPlainText().strip()
-        if not active and not body:
-            QMessageBox.information(self, "Nothing to submit", "Add a comment or review summary first.")
-            return
-        self._set_busy(True)
-        worker = Worker(self.client.submit_review, self.pull_request.ref, self.pull_request.head_sha, active, event, body)
-        worker.signals.result.connect(self._submit_finished)
-        worker.signals.error.connect(self._load_failed)
-        self.thread_pool.start(worker)
-
-    @Slot(object)
-    def _submit_finished(self, result: object) -> None:
-        logger.info("Review submission completed")
-        for draft in list(self.drafts):
-            if not draft.orphaned:
-                self.persistence.delete_draft(draft.id)
-        self.drafts = [draft for draft in self.drafts if draft.orphaned]
-        self.review_body.clear()
-        self._set_busy(False)
-        self.status_label.setText("Review submitted")
-        self.refresh()
 
     @Slot(str, str)
     def _thread_action_requested(self, thread_id: str, action: str) -> None:

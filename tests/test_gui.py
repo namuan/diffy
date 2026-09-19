@@ -49,7 +49,7 @@ class GuiIntegrationTest(unittest.TestCase):
             self.assertFalse(errors, errors[0] if errors else "The pull request did not load")
             self.assertIsNotNone(window.pull_request)
             self.assertEqual(window.pull_request.ref.key, "github.com/alibaba/open-code-review#1449")
-            self.assertGreater(window.file_list.count(), 0)
+            self.assertGreater(len(window.files), 0)
             self.assertGreater(len(window.canvas.scene.items()), 0)
             tree_nodes = [item.widget() for item in window.canvas.scene.items() if isinstance(item, QGraphicsProxyWidget) and isinstance(item.widget(), TreeNodeWidget)]
             self.assertTrue(any(node.node_name == "cmd" and "📁" in node.node_icon for node in tree_nodes))

@@ -89,11 +89,6 @@ class Persistence:
                 ),
             )
 
-    def delete_draft(self, draft_id: str) -> None:
-        logger.info("Deleting draft id=%s", draft_id)
-        with self._connect() as connection:
-            connection.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
-
     def drafts_for(self, ref_key: str) -> list[DraftComment]:
         with self._connect() as connection:
             rows = connection.execute("SELECT * FROM drafts WHERE ref_key = ? ORDER BY created_at", (ref_key,)).fetchall()
