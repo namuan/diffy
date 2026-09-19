@@ -4,7 +4,7 @@ import html
 from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPen, QShortcut, QWheelEvent
+from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -81,7 +81,7 @@ class DiffViewer(QTextBrowser):
         self.setOpenExternalLinks(False)
         self.anchorClicked.connect(self._anchor_clicked)
         self.setFont(QFont("SF Mono", 12))
-        self.setStyleSheet("QTextBrowser { background: #17191c; color: #e5e7eb; border: 0; }")
+        self.setStyleSheet("QTextBrowser { background: #ffffff; color: #111827; border: 0; }")
         self.lines = []
         self.selected_index: int | None = None
 
@@ -96,17 +96,17 @@ class DiffViewer(QTextBrowser):
             marker = "+" if line.kind == "added" else "-" if line.kind == "deleted" else " "
             prefix = f"{old:>6} {new:>6} {marker} "
             value = html.escape(line.content)
-            background = "#193b2a" if line.kind == "added" else "#472126" if line.kind == "deleted" else "#17191c"
+            background = "#e8f5e9" if line.kind == "added" else "#ffebee" if line.kind == "deleted" else "#ffffff"
             if (line.side, line.line) in draft_keys:
                 value = "● " + value
             elif (line.side, line.line) in thread_keys:
                 value = "◆ " + value
             rendered.append(
-                f'<a href="line:{index}" style="text-decoration:none;color:#9ca3af;background:{background};">'
+                f'<a href="line:{index}" style="text-decoration:none;color:#374151;background:{background};">'
                 f"{html.escape(prefix)}{value}</a>"
             )
         if not rendered:
-            rendered.append('<span style="color:#9ca3af;">No textual patch is available for this file.</span>')
+            rendered.append('<span style="color:#6b7280;">No textual patch is available for this file.</span>')
         self.lines = file.lines
         self.selected_index = None
         self.setHtml(
@@ -140,7 +140,7 @@ class SpatialCanvas(QGraphicsView):
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
         self.setMinimumHeight(180)
-        self.setStyleSheet("QGraphicsView { border: 0; background: #202328; }")
+        self.setStyleSheet("QGraphicsView { border: 0; background: #f8fafc; }")
         self.setRenderHints(self.renderHints())
         self.zoom = 1.0
         self.collapsed_folders: set[str] = set()
@@ -167,11 +167,11 @@ class SpatialCanvas(QGraphicsView):
 
     def _render_tree(self) -> None:
         self.scene.clear()
-        row_height = 48
-        node_width = 700
-        indent = 34
+        row_height = 82
+        node_width = 900
+        indent = 48
         row = 0
-        pen = QPen(QColor("#64748b"))
+        pen = QPen(QColor("#94a3b8"))
 
         def add_connector(parent_x: int, parent_y: int, child_x: int, child_y: int) -> None:
             elbow_x = parent_x + 18
@@ -181,7 +181,7 @@ class SpatialCanvas(QGraphicsView):
 
         def add_button(text: str, x: int, y: int, style: str, callback=None) -> None:
             button = QPushButton(text)
-            button.setFixedSize(node_width, 38)
+            button.setFixedSize(node_width, 64)
             button.setStyleSheet(style)
             button.setToolTip(text)
             if callback:
@@ -197,7 +197,7 @@ class SpatialCanvas(QGraphicsView):
             f"Changed files ({self._file_count(self.tree)})",
             root_x,
             root_y,
-            "QPushButton { text-align: left; padding: 8px; font-weight: 600; border: 1px solid #64748b; border-radius: 7px; background: #374151; color: #f9fafb; }",
+            "QPushButton { text-align: left; padding: 12px; font-size: 15px; font-weight: 600; border: 1px solid #94a3b8; border-radius: 9px; background: #e2e8f0; color: #0f172a; }",
         )
         row += 1
 
@@ -214,7 +214,7 @@ class SpatialCanvas(QGraphicsView):
                     f"{marker} {name}/  ({self._file_count(folder)} changed)",
                     x,
                     y,
-                    "QPushButton { text-align: left; padding: 8px; border: 1px solid #4b5563; border-radius: 7px; background: #2f3a4a; color: #e5e7eb; } QPushButton:hover { background: #40516a; }",
+                    "QPushButton { text-align: left; padding: 12px; font-size: 15px; border: 1px solid #93c5fd; border-radius: 9px; background: #dbeafe; color: #1e3a8a; } QPushButton:hover { background: #bfdbfe; }",
                     lambda checked=False, path=folder_path: QTimer.singleShot(0, lambda: self._toggle_folder(path)),
                 )
                 row += 1
@@ -229,7 +229,7 @@ class SpatialCanvas(QGraphicsView):
                     f"{viewed_mark}{file.path}   {file.status}   +{file.additions}  -{file.deletions}{draft_mark}",
                     x,
                     y,
-                    "QPushButton { text-align: left; padding: 8px; border: 1px solid #4b5563; border-radius: 7px; background: #2b3038; color: #f3f4f6; } QPushButton:hover { background: #374151; }",
+                    "QPushButton { text-align: left; padding: 12px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 9px; background: #ffffff; color: #111827; } QPushButton:hover { background: #eff6ff; }",
                     lambda checked=False, path=file.path: self.file_selected.emit(path),
                 )
                 row += 1
@@ -650,9 +650,36 @@ class MainWindow(QMainWindow):
         self.refresh()
 
 
+def apply_light_palette(application: QApplication) -> None:
+    application.setStyle("Fusion")
+    palette = QPalette()
+    colors = {
+        QPalette.ColorRole.Window: "#ffffff",
+        QPalette.ColorRole.WindowText: "#111827",
+        QPalette.ColorRole.Base: "#ffffff",
+        QPalette.ColorRole.AlternateBase: "#f8fafc",
+        QPalette.ColorRole.ToolTipBase: "#ffffff",
+        QPalette.ColorRole.ToolTipText: "#111827",
+        QPalette.ColorRole.Text: "#111827",
+        QPalette.ColorRole.Button: "#f8fafc",
+        QPalette.ColorRole.ButtonText: "#111827",
+        QPalette.ColorRole.BrightText: "#b91c1c",
+        QPalette.ColorRole.Highlight: "#2563eb",
+        QPalette.ColorRole.HighlightedText: "#ffffff",
+        QPalette.ColorRole.Link: "#1d4ed8",
+        QPalette.ColorRole.LinkVisited: "#6d28d9",
+        QPalette.ColorRole.PlaceholderText: "#6b7280",
+    }
+    for role, color in colors.items():
+        palette.setColor(role, QColor(color))
+    application.setPalette(palette)
+    logger.info("Applied forced light application palette")
+
+
 def create_application(arguments: list[str]) -> tuple[QApplication, MainWindow]:
     logger.info("Creating QApplication argument_count=%d", len(arguments))
     application = QApplication(arguments)
+    apply_light_palette(application)
     application.setApplicationName("diffy")
     application.setOrganizationName("diffy")
     initial_ref = arguments[1] if len(arguments) > 1 else None
