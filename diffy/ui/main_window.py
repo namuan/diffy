@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote, unquote
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QIcon, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QStackedWidget,
     QTextBrowser,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -115,8 +116,16 @@ class DiffViewer(QTextBrowser):
             "</div>"
         )
 
-    def show_file(self, file: ChangedFile, drafts: list[DraftComment], threads: list[ReviewThread]) -> None:
+    def show_file(
+        self,
+        file: ChangedFile,
+        drafts: list[DraftComment],
+        threads: list[ReviewThread],
+        hidden_reviewers: set[str] | None = None,
+    ) -> None:
         self.file_path = file.path
+        hidden_reviewers = hidden_reviewers or set()
+        threads = [thread for thread in threads if any(comment.author not in hidden_reviewers for comment in thread.comments)]
         logger.debug("Rendering focused diff path=%s lines=%d drafts=%d threads=%d", file.path, len(file.lines), len(drafts), len(threads))
         drafts_by_line: dict[tuple[str, int | None], list[DraftComment]] = {}
         for draft in drafts:
@@ -139,7 +148,8 @@ class DiffViewer(QTextBrowser):
             rendered.append('<div class="file-comments-header">File comments</div>')
             for thread in unanchored_threads:
                 for comment in thread.comments:
-                    rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
+                    if comment.author not in hidden_reviewers:
+                        rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
                 rendered.append(self._thread_actions(thread))
         for index, line in enumerate(file.lines):
             old = str(line.old_line) if line.old_line is not None else ""
@@ -159,7 +169,8 @@ class DiffViewer(QTextBrowser):
                 rendered.append(self._inline_comment("Draft", draft.body))
             for thread in threads_by_line.get(key, []):
                 for comment in thread.comments:
-                    rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
+                    if comment.author not in hidden_reviewers:
+                        rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
                 rendered.append(self._thread_actions(thread))
         if not rendered:
             rendered.append('<div class="empty-diff">No textual patch is available for this file.</div>')
@@ -626,6 +637,7 @@ class MainWindow(QMainWindow):
         self.selected_file: ChangedFile | None = None
         self.selected_line_index: int | None = None
         self.selected_thread: ReviewThread | None = None
+        self.hidden_reviewers: set[str] = set()
         self._build_ui()
         if initial_ref:
             self.ref_input.setText(initial_ref)
@@ -654,6 +666,18 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.ref_input, 1)
         toolbar.addWidget(self.open_button)
         toolbar.addWidget(self.refresh_button)
+        self.reviewer_filter_button = self._create_tool_button("filter.svg", "Hide review comments by reviewer")
+        self.reviewer_filter_menu = QMenu(self)
+        self.reviewer_filter_button.setMenu(self.reviewer_filter_menu)
+        self.reviewer_filter_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.reviewer_filter_button.setEnabled(False)
+        self.copy_pr_button = self._create_tool_button("copy.svg", "Copy pull request URL")
+        self.copy_pr_button.clicked.connect(self.copy_pull_request)
+        self.browser_button = self._create_tool_button("external-link.svg", "Open pull request in browser")
+        self.browser_button.clicked.connect(self.open_pull_request_in_browser)
+        toolbar.addWidget(self.reviewer_filter_button)
+        toolbar.addWidget(self.copy_pr_button)
+        toolbar.addWidget(self.browser_button)
         root_layout.addLayout(toolbar)
 
         header_layout = QHBoxLayout()
@@ -704,6 +728,15 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self._set_busy(False)
 
+    def _create_tool_button(self, asset_name: str, tooltip: str) -> QToolButton:
+        button = QToolButton()
+        button.setIcon(QIcon(str(_asset_path(asset_name))))
+        button.setIconSize(QSize(18, 18))
+        button.setFixedSize(32, 28)
+        button.setAutoRaise(True)
+        button.setToolTip(tooltip)
+        return button
+
     def _build_actions(self) -> None:
         refresh_action = QAction("Refresh", self)
         refresh_action.setShortcut("Ctrl+R")
@@ -713,6 +746,9 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         self.open_button.setEnabled(not busy)
         self.refresh_button.setEnabled(not busy)
+        self.reviewer_filter_button.setEnabled(not busy and bool(self.threads))
+        self.copy_pr_button.setEnabled(not busy and self.pull_request is not None)
+        self.browser_button.setEnabled(not busy and self.pull_request is not None)
         self.status_label.setText("Loading…" if busy else self.status_label.text())
 
     def open_reference(self) -> None:
@@ -732,6 +768,59 @@ class MainWindow(QMainWindow):
         elif self.ref_input.text().strip():
             self.open_reference()
 
+    def copy_pull_request(self) -> None:
+        if not self.pull_request:
+            return
+        QApplication.clipboard().setText(self.pull_request.url)
+        self.status_label.setText("Pull request URL copied")
+
+    def open_pull_request_in_browser(self) -> None:
+        if self.pull_request:
+            QDesktopServices.openUrl(QUrl(self.pull_request.url))
+
+    def _populate_reviewer_menu(self) -> None:
+        self.reviewer_filter_menu.clear()
+        reviewers = sorted({comment.author for thread in self.threads for comment in thread.comments})
+        self.reviewer_filter_button.setEnabled(bool(reviewers))
+        if not reviewers:
+            action = self.reviewer_filter_menu.addAction("No reviewers")
+            action.setEnabled(False)
+            return
+        self.reviewer_filter_menu.addSection("Hide comments by reviewer")
+        for reviewer in reviewers:
+            action = self.reviewer_filter_menu.addAction(reviewer)
+            action.setCheckable(True)
+            action.setChecked(reviewer in self.hidden_reviewers)
+            action.toggled.connect(lambda hidden, reviewer=reviewer: self._set_reviewer_hidden(reviewer, hidden))
+
+    def _set_reviewer_hidden(self, reviewer: str, hidden: bool) -> None:
+        if hidden:
+            self.hidden_reviewers.add(reviewer)
+        else:
+            self.hidden_reviewers.discard(reviewer)
+        self._refresh_comment_views()
+
+    def _comment_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for thread in self.threads:
+            visible_count = sum(comment.author not in self.hidden_reviewers for comment in thread.comments)
+            if visible_count:
+                counts[thread.path] = counts.get(thread.path, 0) + visible_count
+        return counts
+
+    def _refresh_comment_views(self) -> None:
+        if not self.pull_request:
+            return
+        showing_canvas = self.view_stack.currentIndex() == 0
+        draft_counts: dict[str, int] = {}
+        for draft in self.drafts:
+            draft_counts[draft.path] = draft_counts.get(draft.path, 0) + 1
+        self.canvas.set_files(self.files, self.viewed, draft_counts, self._comment_counts())
+        if self.selected_file:
+            self.diff_viewer.show_file(self.selected_file, self.drafts, self.threads, self.hidden_reviewers)
+        if showing_canvas:
+            self.canvas.focus_first_node()
+
     def _load(self, ref: PullRequestRef) -> None:
         logger.info("Starting pull request load ref=%s", ref.key)
         self._set_busy(True)
@@ -748,6 +837,7 @@ class MainWindow(QMainWindow):
         self.pull_request = loaded.pull_request
         self.files = parsed.files
         self.threads = loaded.threads
+        self._populate_reviewer_menu()
         self.persistence.cache_pull_request(self.pull_request, loaded.diff_text)
         self.persistence.cache_threads(self.pull_request.ref.key, self.threads)
         self.persistence.prune_cached_data()
@@ -776,10 +866,7 @@ class MainWindow(QMainWindow):
         draft_counts: dict[str, int] = {}
         for draft in self.drafts:
             draft_counts[draft.path] = draft_counts.get(draft.path, 0) + 1
-        comment_counts: dict[str, int] = {}
-        for thread in self.threads:
-            comment_counts[thread.path] = comment_counts.get(thread.path, 0) + len(thread.comments)
-        self.canvas.set_files(self.files, self.viewed, draft_counts, comment_counts)
+        self.canvas.set_files(self.files, self.viewed, draft_counts, self._comment_counts())
         self.show_canvas()
 
     def open_diff(self, path: str) -> None:
@@ -804,7 +891,7 @@ class MainWindow(QMainWindow):
         if self.pull_request:
             self.viewed.add(path)
             self.persistence.mark_viewed(self.pull_request.ref.key, path)
-        self.diff_viewer.show_file(file, self.drafts, self.threads)
+        self.diff_viewer.show_file(file, self.drafts, self.threads, self.hidden_reviewers)
 
     @Slot(int)
     def _comment_requested(self, index: int) -> None:
