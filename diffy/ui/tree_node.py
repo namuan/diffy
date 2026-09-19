@@ -12,7 +12,8 @@ class TreeNodeWidget(QWidget):
         icon: str,
         name: str,
         status: str | None,
-        changed_count: int,
+        additions: int,
+        deletions: int,
         comment_count: int,
         width: int,
         height: int,
@@ -49,11 +50,15 @@ class TreeNodeWidget(QWidget):
         name_label.setStyleSheet("background: transparent; border: 0; color: #111827;")
         layout.addWidget(name_label, 1)
 
-        count_label = QLabel(str(changed_count))
-        count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        count_label.setMinimumWidth(24)
-        count_label.setStyleSheet("background: #f1f5f9; color: #475569; border: 0; border-radius: 9px; padding: 2px 6px; font-weight: 600;")
-        layout.addWidget(count_label)
+        additions_label = QLabel(f"+{additions}")
+        additions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        additions_label.setStyleSheet("background: #dcfce7; color: #15803d; border: 0; border-radius: 12px; padding: 4px 7px; font-weight: 600;")
+        layout.addWidget(additions_label)
+
+        deletions_label = QLabel(f"-{deletions}")
+        deletions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        deletions_label.setStyleSheet("background: #fee2e2; color: #b91c1c; border: 0; border-radius: 12px; padding: 4px 7px; font-weight: 600;")
+        layout.addWidget(deletions_label)
 
         comment_label = QLabel(f"● {comment_count}" if comment_count else "")
         comment_label.setVisible(comment_count > 0)

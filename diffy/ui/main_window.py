@@ -220,6 +220,15 @@ class SpatialCanvas(QGraphicsView):
     def _file_count(self, node: dict) -> int:
         return len(node["files"]) + sum(self._file_count(child) for child in node["folders"].values())
 
+    def _change_totals(self, node: dict) -> tuple[int, int]:
+        additions = sum(file.additions for file in node["files"])
+        deletions = sum(file.deletions for file in node["files"])
+        for child in node["folders"].values():
+            child_additions, child_deletions = self._change_totals(child)
+            additions += child_additions
+            deletions += child_deletions
+        return additions, deletions
+
     def _folder_names(self, node: dict) -> list[str]:
         names = []
         for name, child in node["folders"].items():
@@ -244,26 +253,29 @@ class SpatialCanvas(QGraphicsView):
         column_gap = 90
         metrics = QFontMetrics(QFont("Helvetica", 15))
 
-        def estimated_width(icon: str, name: str, status: str | None, changed_count: int, comment_count: int) -> int:
+        def estimated_width(icon: str, name: str, status: str | None, additions: int, deletions: int, comment_count: int) -> int:
             icon_width = metrics.horizontalAdvance(icon)
             name_width = metrics.horizontalAdvance(name)
             status_width = 34 if status else 0
-            count_width = max(24, metrics.horizontalAdvance(str(changed_count)) + 16)
+            additions_width = metrics.horizontalAdvance(f"+{additions}") + 16
+            deletions_width = metrics.horizontalAdvance(f"-{deletions}") + 16
             comment_width = metrics.horizontalAdvance(f"● {comment_count}") + 8 if comment_count else 0
-            return max(285, 28 + icon_width + name_width + status_width + count_width + comment_width + 36)
+            return max(285, 28 + icon_width + name_width + status_width + additions_width + deletions_width + comment_width + 28)
 
-        max_node_width = estimated_width("⌄  📁", "Root", None, self._file_count(self.tree), self._comment_count(self.tree))
+        root_additions, root_deletions = self._change_totals(self.tree)
+        max_node_width = estimated_width("⌄  📁", "Root", None, root_additions, root_deletions, self._comment_count(self.tree))
         for file in self.files:
             filename = file.path.rsplit("/", 1)[-1]
             max_node_width = max(
                 max_node_width,
-                estimated_width("📄", filename, "M", file.change_count, self.comment_counts.get(file.path, 0)),
+                estimated_width("📄", filename, "M", file.additions, file.deletions, self.comment_counts.get(file.path, 0)),
             )
         for folder in self.tree["folders"].values():
             for name in self._folder_names(folder):
+                folder_additions, folder_deletions = self._change_totals(folder)
                 max_node_width = max(
                     max_node_width,
-                    estimated_width("⌄  📁", name, None, self._file_count(folder), self._comment_count(folder)),
+                    estimated_width("⌄  📁", name, None, folder_additions, folder_deletions, self._comment_count(folder)),
                 )
         column_width = max_node_width + 30
         left_margin = 30
@@ -298,7 +310,8 @@ class SpatialCanvas(QGraphicsView):
             icon: str,
             name: str,
             status: str | None,
-            changed_count: int,
+            additions: int,
+            deletions: int,
             comment_count: int,
             x: float,
             y: float,
@@ -307,7 +320,7 @@ class SpatialCanvas(QGraphicsView):
             tooltip: str,
             callback=None,
         ) -> None:
-            node = TreeNodeWidget(icon, name, status, changed_count, comment_count, width, node_height, style, tooltip)
+            node = TreeNodeWidget(icon, name, status, additions, deletions, comment_count, width, node_height, style, tooltip)
             if callback:
                 node.clicked.connect(callback)
             proxy = QGraphicsProxyWidget()
@@ -331,15 +344,17 @@ class SpatialCanvas(QGraphicsView):
                 collapsed = folder_path in self.collapsed_folders
                 marker = "▸" if collapsed else "⌄"
                 comment_count = self._comment_count(folder)
+                additions, deletions = self._change_totals(folder)
                 name = folder_path.rsplit("/", 1)[-1]
-                width = estimated_width(f"{marker}  📁", name, None, self._file_count(folder), comment_count)
+                width = estimated_width(f"{marker}  📁", name, None, additions, deletions, comment_count)
                 if parent_position is not None:
                     add_connector(parent_position[0], parent_position[1], parent_position[2], x, y)
                 add_node(
                     f"{marker}  📁",
                     name,
                     None,
-                    self._file_count(folder),
+                    additions,
+                    deletions,
                     comment_count,
                     x,
                     y,
@@ -355,14 +370,15 @@ class SpatialCanvas(QGraphicsView):
                 if file.path in self.viewed:
                     filename = f"✓  {filename}"
                 comment_count = self.comment_counts.get(file.path, 0)
-                width = estimated_width("📄", filename, status, file.change_count, comment_count)
+                width = estimated_width("📄", filename, status, file.additions, file.deletions, comment_count)
                 if parent_position is not None:
                     add_connector(parent_position[0], parent_position[1], parent_position[2], x, y)
                 add_node(
                     "📄",
                     filename,
                     status,
-                    file.change_count,
+                    file.additions,
+                    file.deletions,
                     comment_count,
                     x,
                     y,
@@ -384,12 +400,13 @@ class SpatialCanvas(QGraphicsView):
         def render_without_root() -> None:
             root_x = left_margin
             root_y = top_margin + (root_span - 1) / 2 * row_height
-            root_width = estimated_width("⌄  📁", "Root", None, self._file_count(self.tree), self._comment_count(self.tree))
+            root_width = estimated_width("⌄  📁", "Root", None, root_additions, root_deletions, self._comment_count(self.tree))
             add_node(
                 "⌄  📁",
                 "Root",
                 None,
-                self._file_count(self.tree),
+                root_additions,
+                root_deletions,
                 self._comment_count(self.tree),
                 root_x,
                 root_y,
