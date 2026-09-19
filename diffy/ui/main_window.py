@@ -165,25 +165,51 @@ class SpatialCanvas(QGraphicsView):
     def _file_count(self, node: dict) -> int:
         return len(node["files"]) + sum(self._file_count(child) for child in node["folders"].values())
 
+    def _draft_count(self, node: dict) -> int:
+        return sum(self.draft_counts.get(file.path, 0) for file in node["files"]) + sum(
+            self._draft_count(child) for child in node["folders"].values()
+        )
+
     def _render_tree(self) -> None:
         self.scene.clear()
-        row_height = 82
-        node_width = 900
-        indent = 48
-        row = 0
-        pen = QPen(QColor("#94a3b8"))
+        row_height = 88
+        node_width = 285
+        node_height = 64
+        column_gap = 90
+        left_margin = 30
+        top_margin = 30
+        pen = QPen(QColor("#cbd5e1"), 2)
+        max_depth = 0
 
-        def add_connector(parent_x: int, parent_y: int, child_x: int, child_y: int) -> None:
-            elbow_x = parent_x + 18
-            child_anchor = child_x + 18
-            self.scene.addLine(elbow_x, parent_y + 20, elbow_x, child_y + 20, pen)
-            self.scene.addLine(elbow_x, child_y + 20, child_anchor, child_y + 20, pen)
+        def child_entries(node: dict) -> list[tuple[str, object]]:
+            folders = [("folder", folder) for _, folder in sorted(node["folders"].items())]
+            files = [("file", file) for file in sorted(node["files"], key=lambda item: item.path)]
+            return folders + files
 
-        def add_button(text: str, x: int, y: int, style: str, callback=None) -> None:
+        def rows_for_entry(entry: tuple[str, object]) -> int:
+            if entry[0] == "file":
+                return 1
+            folder = entry[1]
+            if folder["path"] in self.collapsed_folders:
+                return 1
+            return max(1, sum(rows_for_entry(child) for child in child_entries(folder)))
+
+        def add_connector(parent_x: float, parent_y: float, child_x: float, child_y: float) -> None:
+            parent_right = parent_x + node_width
+            child_left = child_x
+            parent_center = parent_y + node_height / 2
+            child_center = child_y + node_height / 2
+            elbow_x = (parent_right + child_left) / 2
+            self.scene.addLine(parent_right, parent_center, elbow_x, parent_center, pen)
+            self.scene.addLine(elbow_x, parent_center, elbow_x, child_center, pen)
+            self.scene.addLine(elbow_x, child_center, child_left, child_center, pen)
+
+        def add_button(text: str, x: float, y: float, style: str, tooltip: str, callback=None) -> None:
             button = QPushButton(text)
-            button.setFixedSize(node_width, 64)
+            button.setFixedSize(node_width, node_height)
             button.setStyleSheet(style)
-            button.setToolTip(text)
+            button.setToolTip(tooltip)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
             if callback:
                 button.clicked.connect(callback)
             proxy = QGraphicsProxyWidget()
@@ -191,51 +217,75 @@ class SpatialCanvas(QGraphicsView):
             proxy.setPos(x, y)
             self.scene.addItem(proxy)
 
-        root_x = 20
-        root_y = row * row_height + 12
-        add_button(
-            f"Changed files ({self._file_count(self.tree)})",
-            root_x,
-            root_y,
-            "QPushButton { text-align: left; padding: 12px; font-size: 15px; font-weight: 600; border: 1px solid #94a3b8; border-radius: 9px; background: #e2e8f0; color: #0f172a; }",
-        )
-        row += 1
+        folder_style = "QPushButton { text-align: left; padding: 12px; font-size: 15px; border: 1px solid #fdba74; border-radius: 9px; background: #fff7ed; color: #431407; } QPushButton:hover { background: #ffedd5; }"
+        file_style = "QPushButton { text-align: left; padding: 12px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 9px; background: #ffffff; color: #111827; } QPushButton:hover { background: #eff6ff; }"
 
-        def render_node(node: dict, depth: int, parent_x: int, parent_y: int) -> None:
-            nonlocal row
-            x = root_x + depth * indent
-            for name, folder in sorted(node["folders"].items()):
-                y = row * row_height + 12
-                add_connector(parent_x, parent_y, x, y)
+        def place_entry(entry: tuple[str, object], depth: int, top_row: int, parent_position: tuple[float, float] | None) -> tuple[float, float, int]:
+            nonlocal max_depth
+            kind, value = entry
+            max_depth = max(max_depth, depth)
+            span = rows_for_entry(entry)
+            x = left_margin + depth * (node_width + column_gap)
+            y = top_margin + (top_row + (span - 1) / 2) * row_height
+            if parent_position is not None:
+                add_connector(parent_position[0], parent_position[1], x, y)
+            if kind == "folder":
+                folder = value
                 folder_path = folder["path"]
                 collapsed = folder_path in self.collapsed_folders
-                marker = "▸" if collapsed else "▾"
+                marker = "▸" if collapsed else "⌄"
+                draft_count = self._draft_count(folder)
+                badges = f"{self._file_count(folder)}   • {draft_count}" if draft_count else str(self._file_count(folder))
+                text = f"{marker}  📁  {folder_path.rsplit('/', 1)[-1]}                         {badges}"
                 add_button(
-                    f"{marker} {name}/  ({self._file_count(folder)} changed)",
+                    text,
                     x,
                     y,
-                    "QPushButton { text-align: left; padding: 12px; font-size: 15px; border: 1px solid #93c5fd; border-radius: 9px; background: #dbeafe; color: #1e3a8a; } QPushButton:hover { background: #bfdbfe; }",
+                    folder_style,
+                    folder_path,
                     lambda checked=False, path=folder_path: QTimer.singleShot(0, lambda: self._toggle_folder(path)),
                 )
-                row += 1
-                if not collapsed:
-                    render_node(folder, depth + 1, x, y)
-            for file in sorted(node["files"], key=lambda item: item.path):
-                y = row * row_height + 12
-                add_connector(parent_x, parent_y, x, y)
-                viewed_mark = "✓ " if file.path in self.viewed else ""
-                draft_mark = f"  • {self.draft_counts[file.path]} draft" if self.draft_counts.get(file.path) else ""
-                add_button(
-                    f"{viewed_mark}{file.path}   {file.status}   +{file.additions}  -{file.deletions}{draft_mark}",
-                    x,
-                    y,
-                    "QPushButton { text-align: left; padding: 12px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 9px; background: #ffffff; color: #111827; } QPushButton:hover { background: #eff6ff; }",
-                    lambda checked=False, path=file.path: self.file_selected.emit(path),
-                )
-                row += 1
+            else:
+                file = value
+                status = {"modified": "M", "added": "A", "deleted": "D", "renamed": "R"}.get(file.status, "M")
+                viewed_mark = "✓  " if file.path in self.viewed else ""
+                draft_count = self.draft_counts.get(file.path, 0)
+                badges = f"+{file.additions}  −{file.deletions}"
+                if draft_count:
+                    badges += f"   • {draft_count}"
+                filename = file.path.rsplit("/", 1)[-1]
+                text = f"{viewed_mark}📄  {status}  {filename}                         {badges}"
+                add_button(text, x, y, file_style, file.path, lambda checked=False, path=file.path: self.file_selected.emit(path))
+            children = [] if kind == "file" or (kind == "folder" and value["path"] in self.collapsed_folders) else child_entries(value)
+            cursor = top_row
+            for child in children:
+                child_span = rows_for_entry(child)
+                place_entry(child, depth + 1, cursor, (x, y))
+                cursor += child_span
+            return x, y, span
 
-        render_node(self.tree, 1, root_x, root_y)
-        self.scene.setSceneRect(0, 0, node_width + indent * 3, max(row, 1) * row_height + 24)
+        root_entry = ("folder", {"path": "Root", "folders": self.tree["folders"], "files": self.tree["files"]})
+        root_span = rows_for_entry(root_entry)
+        root_drafts = self._draft_count(self.tree)
+        root_badges = f"{self._file_count(self.tree)}   • {root_drafts}" if root_drafts else str(self._file_count(self.tree))
+        root_text = f"⌄  📁  Root                              {root_badges}"
+        def render_without_root() -> None:
+            root_x = left_margin
+            root_y = top_margin + (root_span - 1) / 2 * row_height
+            add_button(
+                root_text,
+                root_x,
+                root_y,
+                folder_style,
+                "Root",
+            )
+            cursor = 0
+            for child in child_entries(self.tree):
+                child_span = rows_for_entry(child)
+                place_entry(child, 1, cursor, (root_x, root_y))
+                cursor += child_span
+        render_without_root()
+        self.scene.setSceneRect(0, 0, left_margin + (max_depth + 1) * (node_width + column_gap), top_margin * 2 + max(root_span, 1) * row_height)
 
     def _toggle_folder(self, path: str) -> None:
         if path in self.collapsed_folders:

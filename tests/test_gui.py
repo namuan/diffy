@@ -51,11 +51,11 @@ class GuiIntegrationTest(unittest.TestCase):
             self.assertGreater(window.file_list.count(), 0)
             self.assertGreater(len(window.canvas.scene.items()), 0)
             tree_labels = [item.widget().text() for item in window.canvas.scene.items() if isinstance(item, QGraphicsProxyWidget)]
-            self.assertTrue(any("cmd/" in label for label in tree_labels))
+            self.assertTrue(any("cmd" in label and "📁" in label for label in tree_labels))
             self.assertTrue(any("provider_cmd.go" in label for label in tree_labels))
             folder_proxy = next(
                 item for item in window.canvas.scene.items()
-                if isinstance(item, QGraphicsProxyWidget) and item.widget().text().startswith("▾ cmd/")
+                if isinstance(item, QGraphicsProxyWidget) and "cmd" in item.widget().text() and "📁" in item.widget().text()
             )
             folder_proxy.widget().click()
             self.application.processEvents()
