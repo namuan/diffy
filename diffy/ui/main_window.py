@@ -188,6 +188,7 @@ class SpatialCanvas(QGraphicsView):
         self.setStyleSheet("QGraphicsView { border: 0; background: #f8fafc; }")
         self.setRenderHints(self.renderHints())
         self.zoom = 1.0
+        self.auto_fit = True
         self.collapsed_folders: set[str] = set()
         self.tree: dict = {"folders": {}, "files": []}
         self.viewed: set[str] = set()
@@ -203,6 +204,8 @@ class SpatialCanvas(QGraphicsView):
         comment_counts: dict[str, int] | None = None,
     ) -> None:
         self.comment_counts = comment_counts or {}
+        self.auto_fit = True
+        self.zoom = 1.0
         logger.debug("Rendering changed-file tree files=%d viewed=%d drafts=%d comments=%d", len(files), len(viewed), sum(draft_counts.values()), sum(self.comment_counts.values()))
         self.files = files
         self.viewed = viewed
@@ -421,6 +424,19 @@ class SpatialCanvas(QGraphicsView):
                 cursor += child_span
         render_without_root()
         self.scene.setSceneRect(0, 0, left_margin + (max_depth + 1) * column_width, top_margin * 2 + max(root_span, 1) * row_height)
+        QTimer.singleShot(0, self._fit_tree)
+
+    def _fit_tree(self) -> None:
+        if not self.auto_fit or not self.scene.items():
+            return
+        rect = self.scene.sceneRect()
+        if rect.width() <= 0 or rect.height() <= 0:
+            return
+        self.fitInView(rect.adjusted(-16, -16, 16, 16), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self._fit_tree)
 
     def _toggle_folder(self, path: str) -> None:
         if path in self.collapsed_folders:
@@ -433,6 +449,7 @@ class SpatialCanvas(QGraphicsView):
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
+            self.auto_fit = False
             factor = 1.15 if event.angleDelta().y() > 0 else 0.87
             self.zoom = max(0.5, min(2.5, self.zoom * factor))
             self.resetTransform()
