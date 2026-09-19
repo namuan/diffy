@@ -243,12 +243,29 @@ class SpatialCanvas(QGraphicsView):
         node_height = 64
         column_gap = 90
         metrics = QFontMetrics(QFont("Helvetica", 15))
-        labels = ["Root"]
-        labels.extend(file.path.rsplit("/", 1)[-1] for file in self.files)
+
+        def estimated_width(icon: str, name: str, status: str | None, changed_count: int, comment_count: int) -> int:
+            icon_width = metrics.horizontalAdvance(icon)
+            name_width = metrics.horizontalAdvance(name)
+            status_width = 34 if status else 0
+            count_width = max(24, metrics.horizontalAdvance(str(changed_count)) + 16)
+            comment_width = metrics.horizontalAdvance(f"● {comment_count}") + 8 if comment_count else 0
+            return max(285, 28 + icon_width + name_width + status_width + count_width + comment_width + 36)
+
+        max_node_width = estimated_width("⌄  📁", "Root", None, self._file_count(self.tree), self._comment_count(self.tree))
+        for file in self.files:
+            filename = file.path.rsplit("/", 1)[-1]
+            max_node_width = max(
+                max_node_width,
+                estimated_width("📄", filename, "M", file.change_count, self.comment_counts.get(file.path, 0)),
+            )
         for folder in self.tree["folders"].values():
-            labels.extend(self._folder_names(folder))
-        max_label_width = max(metrics.horizontalAdvance(label) for label in labels)
-        node_width = max(285, max_label_width + 230)
+            for name in self._folder_names(folder):
+                max_node_width = max(
+                    max_node_width,
+                    estimated_width("⌄  📁", name, None, self._file_count(folder), self._comment_count(folder)),
+                )
+        column_width = max_node_width + 30
         left_margin = 30
         top_margin = 30
         pen = QPen(QColor("#cbd5e1"), 2)
@@ -267,8 +284,8 @@ class SpatialCanvas(QGraphicsView):
                 return 1
             return max(1, sum(rows_for_entry(child) for child in child_entries(folder)))
 
-        def add_connector(parent_x: float, parent_y: float, child_x: float, child_y: float) -> None:
-            parent_right = parent_x + node_width
+        def add_connector(parent_x: float, parent_y: float, parent_width: int, child_x: float, child_y: float) -> None:
+            parent_right = parent_x + parent_width
             child_left = child_x
             parent_center = parent_y + node_height / 2
             child_center = child_y + node_height / 2
@@ -285,11 +302,12 @@ class SpatialCanvas(QGraphicsView):
             comment_count: int,
             x: float,
             y: float,
+            width: int,
             style: str,
             tooltip: str,
             callback=None,
         ) -> None:
-            node = TreeNodeWidget(icon, name, status, changed_count, comment_count, node_width, node_height, style, tooltip)
+            node = TreeNodeWidget(icon, name, status, changed_count, comment_count, width, node_height, style, tooltip)
             if callback:
                 node.clicked.connect(callback)
             proxy = QGraphicsProxyWidget()
@@ -300,29 +318,32 @@ class SpatialCanvas(QGraphicsView):
         folder_style = "#treeNode { border: 1px solid #fdba74; border-radius: 9px; background: #fff7ed; } #treeNode:hover { background: #ffedd5; }"
         file_style = "#treeNode { border: 1px solid #cbd5e1; border-radius: 9px; background: #ffffff; } #treeNode:hover { background: #eff6ff; }"
 
-        def place_entry(entry: tuple[str, object], depth: int, top_row: int, parent_position: tuple[float, float] | None) -> tuple[float, float, int]:
+        def place_entry(entry: tuple[str, object], depth: int, top_row: int, parent_position: tuple[float, float, int] | None) -> tuple[float, float, int]:
             nonlocal max_depth
             kind, value = entry
             max_depth = max(max_depth, depth)
             span = rows_for_entry(entry)
-            x = left_margin + depth * (node_width + column_gap)
+            x = left_margin + depth * column_width
             y = top_margin + (top_row + (span - 1) / 2) * row_height
-            if parent_position is not None:
-                add_connector(parent_position[0], parent_position[1], x, y)
             if kind == "folder":
                 folder = value
                 folder_path = folder["path"]
                 collapsed = folder_path in self.collapsed_folders
                 marker = "▸" if collapsed else "⌄"
                 comment_count = self._comment_count(folder)
+                name = folder_path.rsplit("/", 1)[-1]
+                width = estimated_width(f"{marker}  📁", name, None, self._file_count(folder), comment_count)
+                if parent_position is not None:
+                    add_connector(parent_position[0], parent_position[1], parent_position[2], x, y)
                 add_node(
                     f"{marker}  📁",
-                    folder_path.rsplit("/", 1)[-1],
+                    name,
                     None,
                     self._file_count(folder),
                     comment_count,
                     x,
                     y,
+                    width,
                     folder_style,
                     folder_path,
                     lambda path=folder_path: QTimer.singleShot(0, lambda: self._toggle_folder(path)),
@@ -333,14 +354,19 @@ class SpatialCanvas(QGraphicsView):
                 filename = file.path.rsplit("/", 1)[-1]
                 if file.path in self.viewed:
                     filename = f"✓  {filename}"
+                comment_count = self.comment_counts.get(file.path, 0)
+                width = estimated_width("📄", filename, status, file.change_count, comment_count)
+                if parent_position is not None:
+                    add_connector(parent_position[0], parent_position[1], parent_position[2], x, y)
                 add_node(
                     "📄",
                     filename,
                     status,
                     file.change_count,
-                    self.comment_counts.get(file.path, 0),
+                    comment_count,
                     x,
                     y,
+                    width,
                     file_style,
                     file.path,
                     lambda path=file.path: self.file_selected.emit(path),
@@ -349,7 +375,7 @@ class SpatialCanvas(QGraphicsView):
             cursor = top_row
             for child in children:
                 child_span = rows_for_entry(child)
-                place_entry(child, depth + 1, cursor, (x, y))
+                place_entry(child, depth + 1, cursor, (x, y, width))
                 cursor += child_span
             return x, y, span
 
@@ -358,6 +384,7 @@ class SpatialCanvas(QGraphicsView):
         def render_without_root() -> None:
             root_x = left_margin
             root_y = top_margin + (root_span - 1) / 2 * row_height
+            root_width = estimated_width("⌄  📁", "Root", None, self._file_count(self.tree), self._comment_count(self.tree))
             add_node(
                 "⌄  📁",
                 "Root",
@@ -366,16 +393,17 @@ class SpatialCanvas(QGraphicsView):
                 self._comment_count(self.tree),
                 root_x,
                 root_y,
+                root_width,
                 folder_style,
                 "Root",
             )
             cursor = 0
             for child in child_entries(self.tree):
                 child_span = rows_for_entry(child)
-                place_entry(child, 1, cursor, (root_x, root_y))
+                place_entry(child, 1, cursor, (root_x, root_y, root_width))
                 cursor += child_span
         render_without_root()
-        self.scene.setSceneRect(0, 0, left_margin + (max_depth + 1) * (node_width + column_gap), top_margin * 2 + max(root_span, 1) * row_height)
+        self.scene.setSceneRect(0, 0, left_margin + (max_depth + 1) * column_width, top_margin * 2 + max(root_span, 1) * row_height)
 
     def _toggle_folder(self, path: str) -> None:
         if path in self.collapsed_folders:
