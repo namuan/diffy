@@ -2,6 +2,8 @@
 
 A native macOS pull request review application built with PySide6 and the GitHub CLI.
 
+![diffy application screenshot](assets/app-screenshot.png)
+
 ## Development
 
 ```bash
