@@ -236,6 +236,9 @@ class SpatialCanvas(QGraphicsView):
         self.draft_counts: dict[str, int] = {}
         self.comment_counts: dict[str, int] = {}
         self.files: list[ChangedFile] = []
+        self.node_widgets: list[TreeNodeWidget] = []
+        self.node_proxies: dict[TreeNodeWidget, QGraphicsProxyWidget] = {}
+        self.focused_node: TreeNodeWidget | None = None
 
     def set_files(
         self,
@@ -292,6 +295,9 @@ class SpatialCanvas(QGraphicsView):
 
     def _render_tree(self) -> None:
         self.scene.clear()
+        self.node_widgets = []
+        self.node_proxies = {}
+        self.focused_node = None
         row_height = 88
         node_height = 64
         column_gap = 90
@@ -367,13 +373,20 @@ class SpatialCanvas(QGraphicsView):
             node = TreeNodeWidget(icon, name, status, additions, deletions, comment_count, width, node_height, style, tooltip)
             if callback:
                 node.clicked.connect(callback)
+            node.key_action.connect(
+                lambda action, node=node, is_folder="📁" in icon, target=tooltip: self._handle_node_key(
+                    node, action, is_folder, target
+                )
+            )
             proxy = QGraphicsProxyWidget()
             proxy.setWidget(node)
             proxy.setPos(x, y)
             self.scene.addItem(proxy)
+            self.node_widgets.append(node)
+            self.node_proxies[node] = proxy
 
-        folder_style = "#treeNode { border: 1px solid #fdba74; border-radius: 12px; background: #fff7ed; } #treeNode:hover { border-color: #f59e0b; background: #ffedd5; }"
-        file_style = "#treeNode { border: 1px solid #cbd5e1; border-radius: 12px; background: #ffffff; } #treeNode:hover { border-color: #93c5fd; background: #eff6ff; }"
+        folder_style = "#treeNode { border: 1px solid #fdba74; border-radius: 12px; background: #fff7ed; } #treeNode:hover { border-color: #f59e0b; background: #ffedd5; } #treeNode:focus { border: 2px solid #c2410c; }"
+        file_style = "#treeNode { border: 1px solid #cbd5e1; border-radius: 12px; background: #ffffff; } #treeNode:hover { border-color: #93c5fd; background: #eff6ff; } #treeNode:focus { border: 2px solid #2563eb; }"
 
         def place_entry(entry: tuple[str, object], depth: int, top_row: int, parent_position: tuple[float, float, int] | None) -> tuple[float, float, int]:
             nonlocal max_depth
@@ -475,6 +488,84 @@ class SpatialCanvas(QGraphicsView):
             return
         self.fitInView(rect.adjusted(-16, -16, 16, 16), Qt.AspectRatioMode.KeepAspectRatio)
 
+    def focus_first_node(self) -> None:
+        if self.node_widgets:
+            self._focus_node(self.node_widgets[0])
+        else:
+            self.setFocus()
+
+    def _focus_node(self, node: TreeNodeWidget) -> None:
+        if node not in self.node_widgets:
+            return
+        self.focused_node = node
+        node.setFocus(Qt.FocusReason.OtherFocusReason)
+        proxy = self.node_proxies.get(node)
+        if proxy:
+            self.ensureVisible(proxy)
+
+    def _focus_node_by_target(self, target: str) -> None:
+        node = next((item for item in self.node_widgets if item.toolTip() == target), None)
+        if node:
+            self._focus_node(node)
+
+    def _directional_node(self, node: TreeNodeWidget, action: str) -> TreeNodeWidget | None:
+        proxy = self.node_proxies.get(node)
+        if not proxy:
+            return None
+        current_x = proxy.pos().x() + node.width() / 2
+        current_y = proxy.pos().y() + node.height() / 2
+        candidates = []
+        for candidate in self.node_widgets:
+            if candidate is node:
+                continue
+            candidate_proxy = self.node_proxies[candidate]
+            candidate_x = candidate_proxy.pos().x() + candidate.width() / 2
+            candidate_y = candidate_proxy.pos().y() + candidate.height() / 2
+            if action == "up" and candidate_y < current_y:
+                candidates.append((abs(current_x - candidate_x), current_y - candidate_y, candidate))
+            elif action == "down" and candidate_y > current_y:
+                candidates.append((abs(current_x - candidate_x), candidate_y - current_y, candidate))
+            elif action == "left" and candidate_x < current_x:
+                candidates.append((current_x - candidate_x, abs(current_y - candidate_y), candidate))
+            elif action == "right" and candidate_x > current_x:
+                candidates.append((candidate_x - current_x, abs(current_y - candidate_y), candidate))
+        if not candidates:
+            return None
+        return min(candidates, key=lambda item: (item[0], item[1]))[2]
+
+    def _handle_node_key(self, node: TreeNodeWidget, action: str, is_folder: bool, target: str) -> None:
+        if action in {"up", "down", "left", "right"}:
+            destination = self._directional_node(node, action)
+            if destination:
+                self._focus_node(destination)
+        elif action in {"home", "end"} and self.node_widgets:
+            self._focus_node(self.node_widgets[0 if action == "home" else -1])
+        elif action == "activate" and not is_folder:
+            self.file_selected.emit(target)
+        elif action == "toggle" and is_folder and target != "Root":
+            self._toggle_folder(target)
+
+    def keyPressEvent(self, event) -> None:
+        actions = {
+            Qt.Key.Key_Up: "up",
+            Qt.Key.Key_Down: "down",
+            Qt.Key.Key_Left: "left",
+            Qt.Key.Key_Right: "right",
+            Qt.Key.Key_Home: "home",
+            Qt.Key.Key_End: "end",
+        }
+        action = actions.get(event.key())
+        if action and self.node_widgets:
+            node = self.focused_node
+            if node is None:
+                node = self.node_widgets[0 if action in {"down", "right", "home"} else -1]
+                self._focus_node(node)
+            else:
+                self._handle_node_key(node, action, "📁" in node.node_icon, node.toolTip())
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         QTimer.singleShot(0, self._fit_tree)
@@ -487,6 +578,7 @@ class SpatialCanvas(QGraphicsView):
             self.collapsed_folders.add(path)
             logger.info("Collapsed folder path=%s", path)
         self._render_tree()
+        QTimer.singleShot(0, lambda: self._focus_node_by_target(path))
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
@@ -686,7 +778,7 @@ class MainWindow(QMainWindow):
     def show_canvas(self) -> None:
         logger.info("Showing canvas view")
         self.view_stack.setCurrentIndex(0)
-        self.canvas.setFocus()
+        self.canvas.focus_first_node()
 
     def select_file(self, path: str) -> None:
         logger.debug("Selecting file path=%s", path)

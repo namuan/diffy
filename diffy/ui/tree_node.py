@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 class TreeNodeWidget(QWidget):
     clicked = Signal()
+    key_action = Signal(str)
 
     def __init__(
         self,
@@ -26,6 +27,7 @@ class TreeNodeWidget(QWidget):
         self.node_icon = icon
         self.node_name = name
         self.node_comment_count = comment_count
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFixedSize(width, height)
         self.setToolTip(tooltip)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -71,7 +73,27 @@ class TreeNodeWidget(QWidget):
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
             self.clicked.emit()
             event.accept()
             return
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        actions = {
+            Qt.Key.Key_Up: "up",
+            Qt.Key.Key_Down: "down",
+            Qt.Key.Key_Left: "left",
+            Qt.Key.Key_Right: "right",
+            Qt.Key.Key_Home: "home",
+            Qt.Key.Key_End: "end",
+            Qt.Key.Key_Return: "activate",
+            Qt.Key.Key_Enter: "activate",
+            Qt.Key.Key_Space: "toggle",
+        }
+        action = actions.get(event.key())
+        if action:
+            self.key_action.emit(action)
+            event.accept()
+            return
+        super().keyPressEvent(event)
