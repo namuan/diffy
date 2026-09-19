@@ -18,6 +18,7 @@ from diffy.core.models import PullRequestRef
 from diffy.services.gh_client import GHClient
 from diffy.services.persistence import Persistence
 from diffy.ui.main_window import MainWindow
+from diffy.ui.tree_node import TreeNodeWidget
 
 
 PULL_REQUEST_URL = "https://github.com/alibaba/open-code-review/pull/1449"
@@ -50,14 +51,25 @@ class GuiIntegrationTest(unittest.TestCase):
             self.assertEqual(window.pull_request.ref.key, "github.com/alibaba/open-code-review#1449")
             self.assertGreater(window.file_list.count(), 0)
             self.assertGreater(len(window.canvas.scene.items()), 0)
-            tree_labels = [item.widget().text() for item in window.canvas.scene.items() if isinstance(item, QGraphicsProxyWidget)]
-            self.assertTrue(any("cmd" in label and "📁" in label for label in tree_labels))
-            self.assertTrue(any("provider_cmd.go" in label for label in tree_labels))
+            tree_nodes = [item.widget() for item in window.canvas.scene.items() if isinstance(item, QGraphicsProxyWidget) and isinstance(item.widget(), TreeNodeWidget)]
+            self.assertTrue(any(node.node_name == "cmd" and "📁" in node.node_icon for node in tree_nodes))
+            self.assertTrue(any(node.node_name == "provider_cmd.go" for node in tree_nodes))
+            comment_paths = {thread.path for thread in window.threads if thread.comments}
+            self.assertTrue(comment_paths)
+            for path in comment_paths:
+                filename = path.rsplit("/", 1)[-1]
+                self.assertTrue(any(node.node_name == filename and node.node_comment_count > 0 for node in tree_nodes))
+                folder_parts = path.split("/")[:-1]
+                for index in range(1, len(folder_parts) + 1):
+                    folder_name = folder_parts[index - 1]
+                    self.assertTrue(any(node.node_name == folder_name and "📁" in node.node_icon and node.node_comment_count > 0 for node in tree_nodes))
             folder_proxy = next(
                 item for item in window.canvas.scene.items()
-                if isinstance(item, QGraphicsProxyWidget) and "cmd" in item.widget().text() and "📁" in item.widget().text()
+                if isinstance(item, QGraphicsProxyWidget)
+                and isinstance(item.widget(), TreeNodeWidget)
+                and item.widget().node_name == "cmd"
             )
-            folder_proxy.widget().click()
+            QTest.mouseClick(folder_proxy.widget(), Qt.MouseButton.LeftButton)
             self.application.processEvents()
             self.assertIn("cmd", window.canvas.collapsed_folders)
             self.assertIn("1449", window.title_label.text())

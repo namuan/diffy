@@ -41,6 +41,7 @@ from diffy.services.anchoring import new_draft, reattach_draft
 from diffy.services.diff_parser import parse_unified_diff
 from diffy.services.gh_client import GHClient, GHClientError, LoadedPullRequest
 from diffy.services.persistence import Persistence
+from diffy.ui.tree_node import TreeNodeWidget
 
 
 logger = get_logger("main_window")
@@ -147,9 +148,17 @@ class SpatialCanvas(QGraphicsView):
         self.tree: dict = {"folders": {}, "files": []}
         self.viewed: set[str] = set()
         self.draft_counts: dict[str, int] = {}
+        self.comment_counts: dict[str, int] = {}
 
-    def set_files(self, files: list[ChangedFile], viewed: set[str], draft_counts: dict[str, int]) -> None:
-        logger.debug("Rendering changed-file tree files=%d viewed=%d drafts=%d", len(files), len(viewed), sum(draft_counts.values()))
+    def set_files(
+        self,
+        files: list[ChangedFile],
+        viewed: set[str],
+        draft_counts: dict[str, int],
+        comment_counts: dict[str, int] | None = None,
+    ) -> None:
+        self.comment_counts = comment_counts or {}
+        logger.debug("Rendering changed-file tree files=%d viewed=%d drafts=%d comments=%d", len(files), len(viewed), sum(draft_counts.values()), sum(self.comment_counts.values()))
         self.viewed = viewed
         self.draft_counts = draft_counts
         self.tree = {"folders": {}, "files": []}
@@ -168,6 +177,11 @@ class SpatialCanvas(QGraphicsView):
     def _draft_count(self, node: dict) -> int:
         return sum(self.draft_counts.get(file.path, 0) for file in node["files"]) + sum(
             self._draft_count(child) for child in node["folders"].values()
+        )
+
+    def _comment_count(self, node: dict) -> int:
+        return sum(self.comment_counts.get(file.path, 0) for file in node["files"]) + sum(
+            self._comment_count(child) for child in node["folders"].values()
         )
 
     def _render_tree(self) -> None:
@@ -204,21 +218,28 @@ class SpatialCanvas(QGraphicsView):
             self.scene.addLine(elbow_x, parent_center, elbow_x, child_center, pen)
             self.scene.addLine(elbow_x, child_center, child_left, child_center, pen)
 
-        def add_button(text: str, x: float, y: float, style: str, tooltip: str, callback=None) -> None:
-            button = QPushButton(text)
-            button.setFixedSize(node_width, node_height)
-            button.setStyleSheet(style)
-            button.setToolTip(tooltip)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
+        def add_node(
+            icon: str,
+            name: str,
+            status: str | None,
+            changed_count: int,
+            comment_count: int,
+            x: float,
+            y: float,
+            style: str,
+            tooltip: str,
+            callback=None,
+        ) -> None:
+            node = TreeNodeWidget(icon, name, status, changed_count, comment_count, node_width, node_height, style, tooltip)
             if callback:
-                button.clicked.connect(callback)
+                node.clicked.connect(callback)
             proxy = QGraphicsProxyWidget()
-            proxy.setWidget(button)
+            proxy.setWidget(node)
             proxy.setPos(x, y)
             self.scene.addItem(proxy)
 
-        folder_style = "QPushButton { text-align: left; padding: 12px; font-size: 15px; border: 1px solid #fdba74; border-radius: 9px; background: #fff7ed; color: #431407; } QPushButton:hover { background: #ffedd5; }"
-        file_style = "QPushButton { text-align: left; padding: 12px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 9px; background: #ffffff; color: #111827; } QPushButton:hover { background: #eff6ff; }"
+        folder_style = "#treeNode { border: 1px solid #fdba74; border-radius: 9px; background: #fff7ed; } #treeNode:hover { background: #ffedd5; }"
+        file_style = "#treeNode { border: 1px solid #cbd5e1; border-radius: 9px; background: #ffffff; } #treeNode:hover { background: #eff6ff; }"
 
         def place_entry(entry: tuple[str, object], depth: int, top_row: int, parent_position: tuple[float, float] | None) -> tuple[float, float, int]:
             nonlocal max_depth
@@ -234,28 +255,37 @@ class SpatialCanvas(QGraphicsView):
                 folder_path = folder["path"]
                 collapsed = folder_path in self.collapsed_folders
                 marker = "▸" if collapsed else "⌄"
-                draft_count = self._draft_count(folder)
-                badges = f"{self._file_count(folder)}   • {draft_count}" if draft_count else str(self._file_count(folder))
-                text = f"{marker}  📁  {folder_path.rsplit('/', 1)[-1]}                         {badges}"
-                add_button(
-                    text,
+                comment_count = self._comment_count(folder)
+                add_node(
+                    f"{marker}  📁",
+                    folder_path.rsplit("/", 1)[-1],
+                    None,
+                    self._file_count(folder),
+                    comment_count,
                     x,
                     y,
                     folder_style,
                     folder_path,
-                    lambda checked=False, path=folder_path: QTimer.singleShot(0, lambda: self._toggle_folder(path)),
+                    lambda path=folder_path: QTimer.singleShot(0, lambda: self._toggle_folder(path)),
                 )
             else:
                 file = value
                 status = {"modified": "M", "added": "A", "deleted": "D", "renamed": "R"}.get(file.status, "M")
-                viewed_mark = "✓  " if file.path in self.viewed else ""
-                draft_count = self.draft_counts.get(file.path, 0)
-                badges = f"+{file.additions}  −{file.deletions}"
-                if draft_count:
-                    badges += f"   • {draft_count}"
                 filename = file.path.rsplit("/", 1)[-1]
-                text = f"{viewed_mark}📄  {status}  {filename}                         {badges}"
-                add_button(text, x, y, file_style, file.path, lambda checked=False, path=file.path: self.file_selected.emit(path))
+                if file.path in self.viewed:
+                    filename = f"✓  {filename}"
+                add_node(
+                    "📄",
+                    filename,
+                    status,
+                    file.change_count,
+                    self.comment_counts.get(file.path, 0),
+                    x,
+                    y,
+                    file_style,
+                    file.path,
+                    lambda path=file.path: self.file_selected.emit(path),
+                )
             children = [] if kind == "file" or (kind == "folder" and value["path"] in self.collapsed_folders) else child_entries(value)
             cursor = top_row
             for child in children:
@@ -266,14 +296,15 @@ class SpatialCanvas(QGraphicsView):
 
         root_entry = ("folder", {"path": "Root", "folders": self.tree["folders"], "files": self.tree["files"]})
         root_span = rows_for_entry(root_entry)
-        root_drafts = self._draft_count(self.tree)
-        root_badges = f"{self._file_count(self.tree)}   • {root_drafts}" if root_drafts else str(self._file_count(self.tree))
-        root_text = f"⌄  📁  Root                              {root_badges}"
         def render_without_root() -> None:
             root_x = left_margin
             root_y = top_margin + (root_span - 1) / 2 * row_height
-            add_button(
-                root_text,
+            add_node(
+                "⌄  📁",
+                "Root",
+                None,
+                self._file_count(self.tree),
+                self._comment_count(self.tree),
                 root_x,
                 root_y,
                 folder_style,
@@ -553,7 +584,10 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(f"{draft.path}:{state} · {draft.body[:70]}")
             item.setData(Qt.ItemDataRole.UserRole, draft.id)
             self.draft_list.addItem(item)
-        self.canvas.set_files(self.files, self.viewed, draft_counts)
+        comment_counts: dict[str, int] = {}
+        for thread in self.threads:
+            comment_counts[thread.path] = comment_counts.get(thread.path, 0) + len(thread.comments)
+        self.canvas.set_files(self.files, self.viewed, draft_counts, comment_counts)
         if self.files:
             self.file_list.setCurrentRow(0)
         self.show_canvas()
