@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, QSize, Qt, Q
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QStackedWidget,
     QTextBrowser,
+    QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -678,6 +680,9 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.reviewer_filter_button)
         toolbar.addWidget(self.copy_pr_button)
         toolbar.addWidget(self.browser_button)
+        self.submit_review_button = QPushButton("Submit review")
+        self.submit_review_button.clicked.connect(self.submit_review)
+        toolbar.addWidget(self.submit_review_button)
         root_layout.addLayout(toolbar)
 
         header_layout = QHBoxLayout()
@@ -749,6 +754,7 @@ class MainWindow(QMainWindow):
         self.reviewer_filter_button.setEnabled(not busy and bool(self.threads))
         self.copy_pr_button.setEnabled(not busy and self.pull_request is not None)
         self.browser_button.setEnabled(not busy and self.pull_request is not None)
+        self.submit_review_button.setEnabled(not busy and self.pull_request is not None)
         self.status_label.setText("Loading…" if busy else self.status_label.text())
 
     def open_reference(self) -> None:
@@ -777,6 +783,44 @@ class MainWindow(QMainWindow):
     def open_pull_request_in_browser(self) -> None:
         if self.pull_request:
             QDesktopServices.openUrl(QUrl(self.pull_request.url))
+
+    def submit_review(self) -> None:
+        if not self.pull_request:
+            return
+        active_drafts = [draft for draft in self.drafts if not draft.orphaned]
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Submit review")
+        dialog_layout = QVBoxLayout(dialog)
+        dialog_layout.addWidget(QLabel(f"{len(active_drafts)} draft comment(s) will be submitted"))
+        event = QComboBox()
+        event.addItems(["COMMENT", "APPROVE", "REQUEST_CHANGES"])
+        dialog_layout.addWidget(event)
+        body = QTextEdit()
+        body.setPlaceholderText("Review summary")
+        body.setMinimumSize(420, 120)
+        dialog_layout.addWidget(body)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        dialog_layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        summary = body.toPlainText().strip()
+        if not active_drafts and not summary:
+            QMessageBox.information(self, "Nothing to submit", "Add a comment or review summary first.")
+            return
+        self._set_busy(True)
+        worker = Worker(
+            self.client.submit_review,
+            self.pull_request.ref,
+            self.pull_request.head_sha,
+            active_drafts,
+            event.currentText(),
+            summary,
+        )
+        worker.signals.result.connect(self._submit_finished)
+        worker.signals.error.connect(self._load_failed)
+        self.thread_pool.start(worker)
 
     def _populate_reviewer_menu(self) -> None:
         self.reviewer_filter_menu.clear()
@@ -924,6 +968,16 @@ class MainWindow(QMainWindow):
         logger.info("Draft comment added id=%s path=%s line=%s", draft.id, draft.path, draft.line)
         self._render_loaded_state()
         self.select_file(self.selected_file.path)
+
+    @Slot(object)
+    def _submit_finished(self, result: object) -> None:
+        for draft in self.drafts:
+            if not draft.orphaned:
+                self.persistence.delete_draft(draft.id)
+        self.drafts = [draft for draft in self.drafts if draft.orphaned]
+        self.status_label.setText("Review submitted")
+        self._set_busy(False)
+        self.refresh()
 
     @Slot(str, str)
     def _thread_action_requested(self, thread_id: str, action: str) -> None:

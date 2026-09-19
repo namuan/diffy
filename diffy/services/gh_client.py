@@ -9,6 +9,7 @@ from typing import Any
 
 from diffy.core.logging import get_logger
 from diffy.core.models import (
+    DraftComment,
     PullRequest,
     PullRequestRef,
     ReviewComment,
@@ -187,6 +188,37 @@ class GHClient:
             cursor = page_info.get("endCursor")
         logger.info("Loaded review threads ref=%s count=%d pages=%d", ref.key, len(threads), page)
         return threads
+
+    def submit_review(
+        self,
+        ref: PullRequestRef,
+        head_sha: str,
+        drafts: list[DraftComment],
+        event: str,
+        body: str,
+    ) -> dict[str, Any]:
+        logger.info("Submitting review ref=%s event=%s draft_count=%d summary=%s", ref.key, event, len(drafts), bool(body.strip()))
+        comments = []
+        for draft in drafts:
+            comment: dict[str, Any] = {
+                "body": draft.body,
+                "path": draft.path,
+                "line": draft.line,
+                "side": draft.side,
+            }
+            if draft.start_line is not None and draft.start_line != draft.line:
+                comment["start_line"] = draft.start_line
+                comment["start_side"] = draft.side
+            comments.append(comment)
+        payload = {"body": body, "event": event, "commit_id": head_sha, "comments": comments}
+        output = self._run(
+            ["api", f"repos/{ref.owner}/{ref.repository}/pulls/{ref.number}/reviews", "--method", "POST", "--input", "-"],
+            input_text=json.dumps(payload),
+            timeout=60,
+        )
+        response = json.loads(output)
+        logger.info("Review submitted ref=%s review_id=%s", ref.key, response.get("id"))
+        return response
 
     def reply_to_comment(self, ref: PullRequestRef, comment_id: int, body: str) -> dict[str, Any]:
         logger.info("Submitting thread reply ref=%s comment_id=%d body_present=%s", ref.key, comment_id, bool(body.strip()))
