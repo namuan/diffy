@@ -54,6 +54,8 @@ class GuiIntegrationTest(unittest.TestCase):
             tree_nodes = [item.widget() for item in window.canvas.scene.items() if isinstance(item, QGraphicsProxyWidget) and isinstance(item.widget(), TreeNodeWidget)]
             self.assertTrue(any(node.node_name == "cmd" and "📁" in node.node_icon for node in tree_nodes))
             self.assertTrue(any(node.node_name == "provider_cmd.go" for node in tree_nodes))
+            assurance_node = next(node for node in tree_nodes if node.node_name == "ASSURANCE_CASE.md")
+            self.assertGreater(assurance_node.width(), 285)
             comment_paths = {thread.path for thread in window.threads if thread.comments}
             self.assertTrue(comment_paths)
             for path in comment_paths:
@@ -80,6 +82,16 @@ class GuiIntegrationTest(unittest.TestCase):
             QTest.keyClick(window.diff_viewer, Qt.Key.Key_Escape)
             self.application.processEvents()
             self.assertEqual(window.view_stack.currentIndex(), 0)
+            comment_thread = next(thread for thread in window.threads if thread.comments and thread.line)
+            window.open_diff(comment_thread.path)
+            rendered_diff = window.diff_viewer.toHtml()
+            self.assertIn(comment_thread.comments[0].author, rendered_diff)
+            self.assertIn("#c026d3", rendered_diff)
+            file_comment_thread = next(thread for thread in window.threads if thread.comments and thread.line is None)
+            window.open_diff(file_comment_thread.path)
+            file_comment_html = window.diff_viewer.toHtml()
+            self.assertIn("File comments", file_comment_html)
+            self.assertIn(file_comment_thread.comments[0].author, file_comment_html)
             window.close()
 
 

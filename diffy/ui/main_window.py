@@ -4,7 +4,7 @@ import html
 from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
+from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -86,11 +86,41 @@ class DiffViewer(QTextBrowser):
         self.lines = []
         self.selected_index: int | None = None
 
+    def _inline_comment(self, author: str, body: str, resolved: bool = False) -> str:
+        body_html = html.escape(body).replace("\n", "<br>")
+        state = " · Resolved" if resolved else ""
+        class_name = "inline-comment resolved" if resolved else "inline-comment"
+        return (
+            f'<div class="{class_name}">'
+            f'<div class="comment-meta"><span class="comment-dot">●</span> {html.escape(author)}{state}</div>'
+            f'<div>{body_html}</div>'
+            "</div>"
+        )
+
     def show_file(self, file: ChangedFile, drafts: list[DraftComment], threads: list[ReviewThread]) -> None:
         logger.debug("Rendering focused diff path=%s lines=%d drafts=%d threads=%d", file.path, len(file.lines), len(drafts), len(threads))
-        draft_keys = {(draft.side, draft.line) for draft in drafts if draft.path == file.path}
-        thread_keys = {(thread.side, thread.line) for thread in threads if thread.path == file.path}
+        drafts_by_line: dict[tuple[str, int | None], list[DraftComment]] = {}
+        for draft in drafts:
+            if draft.path == file.path and not draft.orphaned:
+                drafts_by_line.setdefault((draft.side, draft.line), []).append(draft)
+        threads_by_line: dict[tuple[str, int | None], list[ReviewThread]] = {}
+        unanchored_threads: list[ReviewThread] = []
+        available_keys = {(line.side, line.line) for line in file.lines}
+        for thread in threads:
+            if thread.path != file.path:
+                continue
+            line = thread.line if thread.line is not None else thread.start_line
+            key = (thread.side or "RIGHT", line)
+            if line is None or key not in available_keys:
+                unanchored_threads.append(thread)
+            else:
+                threads_by_line.setdefault(key, []).append(thread)
         rendered = []
+        if unanchored_threads:
+            rendered.append('<div class="file-comments-header">File comments</div>')
+            for thread in unanchored_threads:
+                for comment in thread.comments:
+                    rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
         for index, line in enumerate(file.lines):
             old = str(line.old_line) if line.old_line is not None else ""
             new = str(line.new_line) if line.new_line is not None else ""
@@ -98,21 +128,35 @@ class DiffViewer(QTextBrowser):
             prefix = f"{old:>6} {new:>6} {marker} "
             value = html.escape(line.content)
             background = "#e8f5e9" if line.kind == "added" else "#ffebee" if line.kind == "deleted" else "#ffffff"
-            if (line.side, line.line) in draft_keys:
+            key = (line.side, line.line)
+            if key in drafts_by_line or key in threads_by_line:
                 value = "● " + value
-            elif (line.side, line.line) in thread_keys:
-                value = "◆ " + value
             rendered.append(
-                f'<a href="line:{index}" style="text-decoration:none;color:#374151;background:{background};">'
-                f"{html.escape(prefix)}{value}</a>"
+                f'<div class="diff-line"><a href="line:{index}" style="color:#374151;background:{background};">'
+                f"{html.escape(prefix)}{value}</a></div>"
             )
+            for draft in drafts_by_line.get(key, []):
+                rendered.append(self._inline_comment("Draft", draft.body))
+            for thread in threads_by_line.get(key, []):
+                for comment in thread.comments:
+                    rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
         if not rendered:
-            rendered.append('<span style="color:#6b7280;">No textual patch is available for this file.</span>')
+            rendered.append('<div class="empty-diff">No textual patch is available for this file.</div>')
         self.lines = file.lines
         self.selected_index = None
         self.setHtml(
-            "<style>pre { font-family: 'SF Mono'; font-size: 12pt; white-space: pre-wrap; } a { display: block; padding: 2px 6px; }</style>"
-            "<pre>" + "\n".join(rendered) + "</pre>"
+            "<style>"
+            "body { background: #ffffff; color: #111827; margin: 0; }"
+            ".diff-line { font-family: 'SF Mono'; font-size: 12pt; white-space: pre; }"
+            ".diff-line a { display: block; padding: 3px 8px; text-decoration: none; }"
+            ".file-comments-header { margin: 8px 14px 4px 14px; color: #86198f; font-family: -apple-system; font-size: 11pt; font-weight: 700; }"
+            ".inline-comment { margin: 4px 14px 10px 78px; padding: 9px 12px; border-left: 3px solid #c026d3; border-radius: 4px; background: #faf5ff; color: #312e81; font-family: -apple-system; font-size: 11pt; white-space: normal; }"
+            ".inline-comment.resolved { border-left-color: #94a3b8; background: #f8fafc; color: #475569; }"
+            ".comment-meta { font-weight: 600; margin-bottom: 3px; }"
+            ".comment-dot { color: #c026d3; }"
+            ".empty-diff { color: #6b7280; padding: 8px; }"
+            "</style>"
+            + "".join(rendered)
         )
 
     def keyPressEvent(self, event) -> None:
@@ -149,6 +193,7 @@ class SpatialCanvas(QGraphicsView):
         self.viewed: set[str] = set()
         self.draft_counts: dict[str, int] = {}
         self.comment_counts: dict[str, int] = {}
+        self.files: list[ChangedFile] = []
 
     def set_files(
         self,
@@ -159,6 +204,7 @@ class SpatialCanvas(QGraphicsView):
     ) -> None:
         self.comment_counts = comment_counts or {}
         logger.debug("Rendering changed-file tree files=%d viewed=%d drafts=%d comments=%d", len(files), len(viewed), sum(draft_counts.values()), sum(self.comment_counts.values()))
+        self.files = files
         self.viewed = viewed
         self.draft_counts = draft_counts
         self.tree = {"folders": {}, "files": []}
@@ -174,6 +220,13 @@ class SpatialCanvas(QGraphicsView):
     def _file_count(self, node: dict) -> int:
         return len(node["files"]) + sum(self._file_count(child) for child in node["folders"].values())
 
+    def _folder_names(self, node: dict) -> list[str]:
+        names = []
+        for name, child in node["folders"].items():
+            names.append(name)
+            names.extend(self._folder_names(child))
+        return names
+
     def _draft_count(self, node: dict) -> int:
         return sum(self.draft_counts.get(file.path, 0) for file in node["files"]) + sum(
             self._draft_count(child) for child in node["folders"].values()
@@ -187,9 +240,15 @@ class SpatialCanvas(QGraphicsView):
     def _render_tree(self) -> None:
         self.scene.clear()
         row_height = 88
-        node_width = 285
         node_height = 64
         column_gap = 90
+        metrics = QFontMetrics(QFont("Helvetica", 15))
+        labels = ["Root"]
+        labels.extend(file.path.rsplit("/", 1)[-1] for file in self.files)
+        for folder in self.tree["folders"].values():
+            labels.extend(self._folder_names(folder))
+        max_label_width = max(metrics.horizontalAdvance(label) for label in labels)
+        node_width = max(285, max_label_width + 230)
         left_margin = 30
         top_margin = 30
         pen = QPen(QColor("#cbd5e1"), 2)
