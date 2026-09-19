@@ -22,6 +22,7 @@ class TreeNodeWidget(QWidget):
     ):
         super().__init__()
         self.setObjectName("treeNode")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.node_icon = icon
         self.node_name = name
         self.node_comment_count = comment_count

@@ -328,8 +328,8 @@ class SpatialCanvas(QGraphicsView):
             proxy.setPos(x, y)
             self.scene.addItem(proxy)
 
-        folder_style = "#treeNode { border: 1px solid #fdba74; border-radius: 9px; background: #fff7ed; } #treeNode:hover { background: #ffedd5; }"
-        file_style = "#treeNode { border: 1px solid #cbd5e1; border-radius: 9px; background: #ffffff; } #treeNode:hover { background: #eff6ff; }"
+        folder_style = "#treeNode { border: 1px solid #fdba74; border-radius: 12px; background: #fff7ed; } #treeNode:hover { border-color: #f59e0b; background: #ffedd5; }"
+        file_style = "#treeNode { border: 1px solid #cbd5e1; border-radius: 12px; background: #ffffff; } #treeNode:hover { border-color: #93c5fd; background: #eff6ff; }"
 
         def place_entry(entry: tuple[str, object], depth: int, top_row: int, parent_position: tuple[float, float, int] | None) -> tuple[float, float, int]:
             nonlocal max_depth
