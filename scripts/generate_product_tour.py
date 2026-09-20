@@ -232,7 +232,7 @@ def generate() -> list[tuple[str, str, str]]:
         process_events(application)
 
         capture_window(window, "01-canvas-overview")
-        entries.append(("01-canvas-overview.png", "Canvas overview", "Navigate the pull request through a compact file tree with change and comment badges; use the visible −, +, and Fit controls to manage large trees."))
+        entries.append(("01-canvas-overview.png", "Canvas overview", "Navigate the pull request through a compact file tree with change and comment badges; use the visible −, +, Fit, mouse-wheel, or trackpad pinch controls to manage large trees."))
 
         window.canvas.focus_first_node()
         QTest.keyClick(window.canvas.focused_node, Qt.Key.Key_Right)

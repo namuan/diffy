@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QInputDevice, QKeySequence, QNativeGestureEvent, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -758,8 +758,17 @@ class SpatialCanvas(QGraphicsView):
         self._render_tree()
         QTimer.singleShot(0, lambda: self.focus_node_by_target(path))
 
+    def nativeGestureEvent(self, event: QNativeGestureEvent) -> None:
+        if event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
+            self.set_zoom(self.zoom * max(0.5, 1.0 + event.value()))
+            event.accept()
+            return
+        super().nativeGestureEvent(event)
+
     def wheelEvent(self, event: QWheelEvent) -> None:
-        if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
+        device = event.device()
+        is_mouse = device is not None and device.type() == QInputDevice.DeviceType.Mouse
+        if is_mouse or event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
             factor = 1.15 if event.angleDelta().y() > 0 else 0.87
             self.set_zoom(self.zoom * factor)
             event.accept()
