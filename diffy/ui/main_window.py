@@ -591,7 +591,7 @@ class SpatialCanvas(QGraphicsView):
             resolved_count += child_resolved
         return open_count, resolved_count
 
-    def _render_tree(self) -> None:
+    def _render_tree(self, fit: bool = True) -> None:
         self.scene.clear()
         self.node_widgets = []
         self.node_proxies = {}
@@ -830,7 +830,8 @@ class SpatialCanvas(QGraphicsView):
         scene_width = left_margin + sum(column_widths.values()) + column_gap * max_depth + 30
         self.scene.setSceneRect(0, 0, scene_width, top_margin * 2 + max(root_span, 1) * row_height)
         self.content_scene_rect = self.scene.sceneRect()
-        QTimer.singleShot(0, self._fit_tree)
+        if fit:
+            QTimer.singleShot(0, self._fit_tree)
 
     def _fit_tree(self) -> None:
         if not self.auto_fit or not self.scene.items():
@@ -1114,7 +1115,7 @@ class SpatialCanvas(QGraphicsView):
         else:
             self.collapsed_folders.add(path)
             logger.info("Collapsed folder path=%s", path)
-        self._render_tree()
+        self._render_tree(fit=False)
         QTimer.singleShot(0, lambda: self.focus_node_by_target(path))
 
     def _handle_native_gesture(self, event: QNativeGestureEvent) -> bool:
