@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 
@@ -21,6 +22,7 @@ class TreeNodeWidget(QWidget):
         height: int,
         style: str,
         tooltip: str,
+        shortcuts: dict[str, QKeySequence] | None = None,
     ):
         super().__init__()
         self.setObjectName("treeNode")
@@ -30,6 +32,7 @@ class TreeNodeWidget(QWidget):
         self.node_open_comment_count = open_comment_count
         self.node_resolved_comment_count = resolved_comment_count
         self.node_comment_count = open_comment_count + resolved_comment_count
+        self.shortcuts = shortcuts or {}
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFixedSize(width, height)
         self.setToolTip(tooltip)
@@ -88,28 +91,27 @@ class TreeNodeWidget(QWidget):
             return
         super().mousePressEvent(event)
 
-    def keyPressEvent(self, event) -> None:
-        if event.modifiers() & Qt.KeyboardModifier.MetaModifier:
-            if event.key() == Qt.Key.Key_Right:
-                self.key_action.emit("expand_level")
-                event.accept()
-                return
-            if event.key() == Qt.Key.Key_Left:
-                self.key_action.emit("collapse_level")
-                event.accept()
-                return
+    def _shortcut_action(self, event) -> str | None:
+        event_sequence = QKeySequence(event.key() | event.modifiers().value)
         actions = {
-            Qt.Key.Key_Up: "up",
-            Qt.Key.Key_Down: "down",
-            Qt.Key.Key_Left: "left",
-            Qt.Key.Key_Right: "right",
-            Qt.Key.Key_Home: "home",
-            Qt.Key.Key_End: "end",
-            Qt.Key.Key_Return: "activate",
-            Qt.Key.Key_Enter: "activate",
-            Qt.Key.Key_Space: "toggle",
+            "move_up": "up",
+            "move_down": "down",
+            "move_left": "left",
+            "move_right": "right",
+            "go_home": "home",
+            "go_end": "end",
+            "activate_node": "activate",
+            "toggle_folder": "toggle",
+            "expand_level": "expand_level",
+            "collapse_level": "collapse_level",
         }
-        action = actions.get(event.key())
+        for shortcut_id, shortcut in self.shortcuts.items():
+            if shortcut.matches(event_sequence) == QKeySequence.SequenceMatch.ExactMatch:
+                return actions.get(shortcut_id)
+        return None
+
+    def keyPressEvent(self, event) -> None:
+        action = self._shortcut_action(event)
         if action:
             self.key_action.emit(action)
             event.accept()

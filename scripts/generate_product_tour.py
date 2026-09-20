@@ -269,10 +269,23 @@ def generate() -> list[tuple[str, str, str]]:
         window.show_canvas()
         process_events(application)
 
+        def capture_shortcut_dialog() -> None:
+            dialog = visible_dialog()
+            if dialog:
+                capture_window(window, "07-shortcuts", dialog)
+                dialog.reject()
+            else:
+                QTimer.singleShot(20, capture_shortcut_dialog)
+
+        QTimer.singleShot(0, capture_shortcut_dialog)
+        window.show_shortcut_settings()
+        process_events(application)
+        entries.append(("07-shortcuts.png", "Configurable shortcuts", "Configure every keyboard shortcut in one dialog; settings are saved for the next launch."))
+
         def capture_submit_dialog() -> None:
             dialog = visible_dialog()
             if dialog:
-                capture_window(window, "07-submit-review", dialog)
+                capture_window(window, "08-submit-review", dialog)
                 dialog.reject()
             else:
                 QTimer.singleShot(20, capture_submit_dialog)
@@ -280,7 +293,7 @@ def generate() -> list[tuple[str, str, str]]:
         QTimer.singleShot(0, capture_submit_dialog)
         window.submit_review()
         process_events(application)
-        entries.append(("07-submit-review.png", "Submit review", "Submit a review summary and draft line comments as a comment, approval, or change request."))
+        entries.append(("08-submit-review.png", "Submit review", "Submit a review summary and draft line comments as a comment, approval, or change request."))
         window.close()
     return entries
 

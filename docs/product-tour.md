@@ -38,8 +38,14 @@ Hide comments from selected reviewers while keeping the diff and canvas counts i
 
 ![Reviewer filtering](../assets/product-tour/06-reviewer-filter.png)
 
+## Configurable shortcuts
+
+Configure every keyboard shortcut in one dialog; settings are saved for the next launch.
+
+![Configurable shortcuts](../assets/product-tour/07-shortcuts.png)
+
 ## Submit review
 
 Submit a review summary and draft line comments as a comment, approval, or change request.
 
-![Submit review](../assets/product-tour/07-submit-review.png)
+![Submit review](../assets/product-tour/08-submit-review.png)

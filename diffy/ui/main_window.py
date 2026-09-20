@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote, unquote
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QPoint, QSettings, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QInputDevice, QKeySequence, QNativeGestureEvent, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -15,12 +15,14 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QGraphicsProxyWidget,
     QGraphicsScene,
     QGraphicsView,
     QFrame,
     QHBoxLayout,
     QInputDialog,
+    QKeySequenceEdit,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -49,6 +51,39 @@ from diffy.ui.tree_node import TreeNodeWidget
 
 
 logger = get_logger("main_window")
+
+
+SHORTCUT_DEFAULTS = {
+    "refresh": "Ctrl+R",
+    "quick_search": "Meta+Shift+F",
+    "show_canvas": "Escape",
+    "expand_level": "Meta+Right",
+    "collapse_level": "Meta+Left",
+    "move_up": "Up",
+    "move_down": "Down",
+    "move_left": "Left",
+    "move_right": "Right",
+    "go_home": "Home",
+    "go_end": "End",
+    "activate_node": "Return",
+    "toggle_folder": "Space",
+}
+
+SHORTCUT_LABELS = {
+    "refresh": "Refresh pull request",
+    "quick_search": "Quick search",
+    "show_canvas": "Return to Canvas",
+    "expand_level": "Expand one level",
+    "collapse_level": "Collapse one level",
+    "move_up": "Move up",
+    "move_down": "Move down",
+    "move_left": "Move left",
+    "move_right": "Move right",
+    "go_home": "Go to first node",
+    "go_end": "Go to last node",
+    "activate_node": "Open selected file",
+    "toggle_folder": "Toggle folder",
+}
 
 
 def _asset_path(name: str) -> Path:
@@ -242,6 +277,46 @@ class DiffViewer(QTextBrowser):
             self.line_selected.emit(index)
 
 
+class ShortcutDialog(QDialog):
+    def __init__(self, shortcuts: dict[str, QKeySequence], parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("Keyboard shortcuts")
+        self.edits: dict[str, QKeySequenceEdit] = {}
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        for shortcut_id, label in SHORTCUT_LABELS.items():
+            edit = QKeySequenceEdit(shortcuts[shortcut_id])
+            edit.setMaximumSequenceLength(1)
+            self.edits[shortcut_id] = edit
+            form.addRow(label, edit)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
+        reset_button = buttons.addButton("Restore defaults", QDialogButtonBox.ButtonRole.ResetRole)
+        reset_button.clicked.connect(self.restore_defaults)
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.resize(460, 420)
+
+    def restore_defaults(self) -> None:
+        for shortcut_id, default in SHORTCUT_DEFAULTS.items():
+            self.edits[shortcut_id].setKeySequence(QKeySequence(default))
+
+    def _accept(self) -> None:
+        values = {
+            shortcut_id: edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
+            for shortcut_id, edit in self.edits.items()
+        }
+        duplicates = [value for value in values.values() if value and list(values.values()).count(value) > 1]
+        if duplicates:
+            QMessageBox.warning(self, "Duplicate shortcut", "Each shortcut must be unique.")
+            return
+        self.accept()
+
+    def values(self) -> dict[str, QKeySequence]:
+        return {shortcut_id: edit.keySequence() for shortcut_id, edit in self.edits.items()}
+
+
 class QuickSearchDialog(QDialog):
     selected = Signal(str)
 
@@ -376,10 +451,16 @@ class SpatialCanvas(QGraphicsView):
         self.viewed: set[str] = set()
         self.draft_counts: dict[str, int] = {}
         self.comment_counts: dict[str, tuple[int, int]] = {}
+        self.shortcuts: dict[str, QKeySequence] = {}
         self.files: list[ChangedFile] = []
         self.node_widgets: list[TreeNodeWidget] = []
         self.node_proxies: dict[TreeNodeWidget, QGraphicsProxyWidget] = {}
         self.focused_node: TreeNodeWidget | None = None
+
+    def set_shortcuts(self, shortcuts: dict[str, QKeySequence]) -> None:
+        self.shortcuts = dict(shortcuts)
+        for node in self.node_widgets:
+            node.shortcuts = self.shortcuts
 
     def set_files(
         self,
@@ -522,7 +603,7 @@ class SpatialCanvas(QGraphicsView):
             tooltip: str,
             callback=None,
         ) -> None:
-            node = TreeNodeWidget(icon, name, status, additions, deletions, comment_counts[0], comment_counts[1], width, node_height, style, tooltip)
+            node = TreeNodeWidget(icon, name, status, additions, deletions, comment_counts[0], comment_counts[1], width, node_height, style, tooltip, self.shortcuts)
             if callback:
                 node.clicked.connect(callback)
             node.key_action.connect(
@@ -730,25 +811,27 @@ class SpatialCanvas(QGraphicsView):
         elif action == "collapse_level":
             self.collapse_one_level()
 
-    def keyPressEvent(self, event) -> None:
-        if event.modifiers() & Qt.KeyboardModifier.MetaModifier:
-            if event.key() == Qt.Key.Key_Right:
-                self.expand_one_level()
-                event.accept()
-                return
-            if event.key() == Qt.Key.Key_Left:
-                self.collapse_one_level()
-                event.accept()
-                return
+    def _shortcut_action(self, event) -> str | None:
+        event_sequence = QKeySequence(event.key() | event.modifiers().value)
         actions = {
-            Qt.Key.Key_Up: "up",
-            Qt.Key.Key_Down: "down",
-            Qt.Key.Key_Left: "left",
-            Qt.Key.Key_Right: "right",
-            Qt.Key.Key_Home: "home",
-            Qt.Key.Key_End: "end",
+            "move_up": "up",
+            "move_down": "down",
+            "move_left": "left",
+            "move_right": "right",
+            "go_home": "home",
+            "go_end": "end",
+            "activate_node": "activate",
+            "toggle_folder": "toggle",
+            "expand_level": "expand_level",
+            "collapse_level": "collapse_level",
         }
-        action = actions.get(event.key())
+        for shortcut_id, shortcut in self.shortcuts.items():
+            if shortcut.matches(event_sequence) == QKeySequence.SequenceMatch.ExactMatch:
+                return actions.get(shortcut_id)
+        return None
+
+    def keyPressEvent(self, event) -> None:
+        action = self._shortcut_action(event)
         if action and self.node_widgets:
             node = self.focused_node
             if node is None:
@@ -889,6 +972,8 @@ class MainWindow(QMainWindow):
         self.selected_line_index: int | None = None
         self.selected_thread: ReviewThread | None = None
         self.hidden_reviewers: set[str] = set()
+        self.settings = QSettings("namuan", "diffy")
+        self.shortcut_sequences = self._load_shortcuts()
         self._build_ui()
         if initial_ref:
             self.ref_input.setText(initial_ref)
@@ -926,9 +1011,12 @@ class MainWindow(QMainWindow):
         self.copy_pr_button.clicked.connect(self.copy_pull_request)
         self.browser_button = self._create_tool_button("external-link.svg", "Open pull request in browser")
         self.browser_button.clicked.connect(self.open_pull_request_in_browser)
+        self.shortcuts_button = QPushButton("Shortcuts")
+        self.shortcuts_button.clicked.connect(self.show_shortcut_settings)
         toolbar.addWidget(self.reviewer_filter_button)
         toolbar.addWidget(self.copy_pr_button)
         toolbar.addWidget(self.browser_button)
+        toolbar.addWidget(self.shortcuts_button)
         self.submit_review_button = QPushButton("Submit review")
         self.submit_review_button.clicked.connect(self.submit_review)
         toolbar.addWidget(self.submit_review_button)
@@ -980,6 +1068,7 @@ class MainWindow(QMainWindow):
         canvas_toolbar.addWidget(self.canvas_fit_button)
         canvas_layout.addLayout(canvas_toolbar)
         self.canvas = SpatialCanvas()
+        self.canvas.set_shortcuts(self.shortcut_sequences)
         self.canvas.file_selected.connect(self.open_diff)
         self.canvas.zoom_changed.connect(self._update_canvas_zoom_label)
         self.canvas_zoom_out_button.clicked.connect(self.canvas.zoom_out)
@@ -987,10 +1076,10 @@ class MainWindow(QMainWindow):
         self.canvas_fit_button.clicked.connect(self.canvas.fit_canvas)
         self.expand_all_button.clicked.connect(self.canvas.expand_all)
         self.collapse_all_button.clicked.connect(self.canvas.collapse_all)
-        self.expand_level_shortcut = QShortcut(QKeySequence("Meta+Right"), self)
+        self.expand_level_shortcut = QShortcut(self.shortcut_sequences["expand_level"], self)
         self.expand_level_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self.expand_level_shortcut.activated.connect(self._expand_canvas_level)
-        self.collapse_level_shortcut = QShortcut(QKeySequence("Meta+Left"), self)
+        self.collapse_level_shortcut = QShortcut(self.shortcut_sequences["collapse_level"], self)
         self.collapse_level_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self.collapse_level_shortcut.activated.connect(self._collapse_canvas_level)
         canvas_layout.addWidget(self.canvas)
@@ -1019,9 +1108,9 @@ class MainWindow(QMainWindow):
         diff_page_layout.addWidget(content)
         self.view_stack.addWidget(diff_page)
         root_layout.addWidget(self.view_stack, 1)
-        self.escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        self.escape_shortcut = QShortcut(self.shortcut_sequences["show_canvas"], self)
         self.escape_shortcut.activated.connect(self.show_canvas)
-        self.quick_search_shortcut = QShortcut(QKeySequence("Meta+Shift+F"), self)
+        self.quick_search_shortcut = QShortcut(self.shortcut_sequences["quick_search"], self)
         self.quick_search_shortcut.activated.connect(self.show_quick_search)
         self.setCentralWidget(root)
         self._set_busy(False)
@@ -1051,10 +1140,38 @@ class MainWindow(QMainWindow):
         return button
 
     def _build_actions(self) -> None:
-        refresh_action = QAction("Refresh", self)
-        refresh_action.setShortcut("Ctrl+R")
-        refresh_action.triggered.connect(self.refresh)
-        self.addAction(refresh_action)
+        self.refresh_action = QAction("Refresh", self)
+        self.refresh_action.setShortcut(self.shortcut_sequences["refresh"])
+        self.refresh_action.triggered.connect(self.refresh)
+        self.addAction(self.refresh_action)
+
+    def _load_shortcuts(self) -> dict[str, QKeySequence]:
+        shortcuts = {}
+        for shortcut_id, default in SHORTCUT_DEFAULTS.items():
+            stored = self.settings.value(f"shortcuts/{shortcut_id}")
+            shortcuts[shortcut_id] = QKeySequence(default if stored is None else str(stored))
+        return shortcuts
+
+    def show_shortcut_settings(self) -> None:
+        dialog = ShortcutDialog(self.shortcut_sequences, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.shortcut_sequences = dialog.values()
+        for shortcut_id, shortcut in self.shortcut_sequences.items():
+            self.settings.setValue(
+                f"shortcuts/{shortcut_id}",
+                shortcut.toString(QKeySequence.SequenceFormat.PortableText),
+            )
+        self.settings.sync()
+        self._apply_shortcuts()
+
+    def _apply_shortcuts(self) -> None:
+        self.refresh_action.setShortcut(self.shortcut_sequences["refresh"])
+        self.escape_shortcut.setKey(self.shortcut_sequences["show_canvas"])
+        self.quick_search_shortcut.setKey(self.shortcut_sequences["quick_search"])
+        self.expand_level_shortcut.setKey(self.shortcut_sequences["expand_level"])
+        self.collapse_level_shortcut.setKey(self.shortcut_sequences["collapse_level"])
+        self.canvas.set_shortcuts(self.shortcut_sequences)
 
     def _set_busy(self, busy: bool) -> None:
         self.open_button.setEnabled(not busy)
@@ -1388,7 +1505,7 @@ def create_application(arguments: list[str]) -> tuple[QApplication, MainWindow]:
     application.setWindowIcon(QIcon(str(_asset_path("logo.png"))))
     apply_light_palette(application)
     application.setApplicationName("diffy")
-    application.setOrganizationName("diffy")
+    application.setOrganizationName("namuan")
     initial_ref = arguments[1] if len(arguments) > 1 else None
     window = MainWindow(initial_ref)
     window.show()
