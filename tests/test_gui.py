@@ -123,8 +123,12 @@ class GuiIntegrationTest(unittest.TestCase):
             self.assertEqual(search.results.count(), 2)
             selected_paths: list[str] = []
             search.selected.connect(selected_paths.append)
+            search.selected.connect(window.highlight_canvas_node)
             QTest.keyClick(search.search_input, Qt.Key.Key_Return)
+            self.application.processEvents()
             self.assertEqual(selected_paths, ["cmd/opencodereview/provider_cmd.go"])
+            self.assertEqual(window.view_stack.currentIndex(), 0)
+            self.assertTrue(window.canvas.focused_node.node_name.endswith("provider_cmd.go"))
             self.assertEqual(window.quick_search_shortcut.key().toString(), "Meta+Shift+F")
             window.close()
 

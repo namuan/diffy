@@ -342,8 +342,9 @@ class QuickSearchDialog(QDialog):
             self._activate_item(item)
 
     def _activate_item(self, item: QListWidgetItem) -> None:
-        self.selected.emit(item.data(Qt.ItemDataRole.UserRole))
+        path = item.data(Qt.ItemDataRole.UserRole)
         self.accept()
+        self.selected.emit(path)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if watched is self.search_input and event.type() == QEvent.Type.KeyPress:
@@ -641,7 +642,15 @@ class SpatialCanvas(QGraphicsView):
         if proxy:
             self.ensureVisible(proxy)
 
-    def _focus_node_by_target(self, target: str) -> None:
+    def focus_node_by_target(self, target: str) -> None:
+        parts = [part for part in target.split("/") if part]
+        ancestors = ["/".join(parts[:index]) for index in range(1, len(parts))]
+        collapsed_ancestor = next((path for path in ancestors if path in self.collapsed_folders), None)
+        if collapsed_ancestor:
+            self.collapsed_folders.remove(collapsed_ancestor)
+            self._render_tree()
+            QTimer.singleShot(0, lambda: self.focus_node_by_target(target))
+            return
         node = next((item for item in self.node_widgets if item.toolTip() == target), None)
         if node:
             self._focus_node(node)
@@ -716,7 +725,7 @@ class SpatialCanvas(QGraphicsView):
             self.collapsed_folders.add(path)
             logger.info("Collapsed folder path=%s", path)
         self._render_tree()
-        QTimer.singleShot(0, lambda: self._focus_node_by_target(path))
+        QTimer.singleShot(0, lambda: self.focus_node_by_target(path))
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
@@ -1044,12 +1053,17 @@ class MainWindow(QMainWindow):
         self.view_stack.setCurrentIndex(0)
         self.canvas.focus_first_node()
 
+    def highlight_canvas_node(self, path: str) -> None:
+        self.view_stack.setCurrentIndex(0)
+        self.canvas.focus_node_by_target(path)
+        QTimer.singleShot(0, lambda: self.canvas.focus_node_by_target(path))
+
     def show_quick_search(self) -> None:
         if not self.files:
             return
         dialog = QuickSearchDialog(self.files, self)
         self.quick_search_dialog = dialog
-        dialog.selected.connect(self.open_diff)
+        dialog.selected.connect(self.highlight_canvas_node)
         dialog.finished.connect(lambda result: setattr(self, "quick_search_dialog", None))
         dialog.adjustSize()
         x = (self.width() - dialog.width()) // 2
