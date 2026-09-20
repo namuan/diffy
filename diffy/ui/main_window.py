@@ -881,6 +881,12 @@ class SpatialCanvas(QGraphicsView):
         proxy = self.node_proxies.get(node)
         if not proxy:
             return
+        node_position = self.mapFromScene(proxy.sceneBoundingRect().center())
+        viewport_center = self.viewport().rect().center()
+        if abs(node_position.x() - viewport_center.x()) <= 3 and abs(node_position.y() - viewport_center.y()) <= 3:
+            if self.center_animation:
+                self.center_animation.stop()
+            return
         if self.center_animation:
             self.center_animation.stop()
         horizontal = self.horizontalScrollBar()
@@ -921,9 +927,11 @@ class SpatialCanvas(QGraphicsView):
     def _focus_node(self, node: TreeNodeWidget) -> None:
         if node not in self.node_widgets:
             return
+        was_focused = node.hasFocus()
         self.focused_node = node
         node.setFocus(Qt.FocusReason.OtherFocusReason)
-        self._node_focus_changed(node)
+        if was_focused:
+            self._node_focus_changed(node)
 
     def focus_node_by_target(self, target: str) -> None:
         parts = [part for part in target.split("/") if part]
