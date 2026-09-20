@@ -369,6 +369,7 @@ class SpatialCanvas(QGraphicsView):
         self.setStyleSheet("QGraphicsView { border: 0; background: #f8fafc; }")
         self.setRenderHints(self.renderHints())
         self.zoom = 1.0
+        self.fit_scale = 1.0
         self.auto_fit = True
         self.collapsed_folders: set[str] = set()
         self.tree: dict = {"folders": {}, "files": []}
@@ -390,6 +391,7 @@ class SpatialCanvas(QGraphicsView):
         self.comment_counts = comment_counts or {}
         self.auto_fit = True
         self.zoom = 1.0
+        self.fit_scale = 1.0
         total_comments = sum(open_count + resolved_count for open_count, resolved_count in self.comment_counts.values())
         logger.debug("Rendering changed-file tree files=%d viewed=%d drafts=%d comments=%d", len(files), len(viewed), sum(draft_counts.values()), total_comments)
         self.files = files
@@ -638,6 +640,7 @@ class SpatialCanvas(QGraphicsView):
         if rect.width() <= 0 or rect.height() <= 0:
             return
         self.fitInView(rect.adjusted(-16, -16, 16, 16), Qt.AspectRatioMode.KeepAspectRatio)
+        self.fit_scale = max(self.transform().m11(), 0.001)
         self.zoom = 1.0
         self.zoom_changed.emit(self.zoom, True)
 
@@ -645,7 +648,7 @@ class SpatialCanvas(QGraphicsView):
         self.auto_fit = False
         self.zoom = max(0.5, min(2.5, zoom))
         self.resetTransform()
-        self.scale(self.zoom, self.zoom)
+        self.scale(self.fit_scale * self.zoom, self.fit_scale * self.zoom)
         self.zoom_changed.emit(self.zoom, False)
 
     def zoom_in(self) -> None:
@@ -758,12 +761,25 @@ class SpatialCanvas(QGraphicsView):
         self._render_tree()
         QTimer.singleShot(0, lambda: self.focus_node_by_target(path))
 
-    def nativeGestureEvent(self, event: QNativeGestureEvent) -> None:
-        if event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
-            self.set_zoom(self.zoom * max(0.5, 1.0 + event.value()))
-            event.accept()
-            return
-        super().nativeGestureEvent(event)
+    def _handle_native_gesture(self, event: QNativeGestureEvent) -> bool:
+        if event.gestureType() != Qt.NativeGestureType.ZoomNativeGesture:
+            return False
+        factor = max(0.8, min(1.2, 1.0 + event.value()))
+        self.set_zoom(self.zoom * factor)
+        event.accept()
+        return True
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.NativeGesture and isinstance(event, QNativeGestureEvent):
+            if self._handle_native_gesture(event):
+                return True
+        return super().event(event)
+
+    def viewportEvent(self, event) -> bool:
+        if event.type() == QEvent.Type.NativeGesture and isinstance(event, QNativeGestureEvent):
+            if self._handle_native_gesture(event):
+                return True
+        return super().viewportEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         device = event.device()
@@ -877,7 +893,8 @@ class MainWindow(QMainWindow):
         self.canvas_zoom_in_button.setToolTip("Zoom in")
         self.canvas_fit_button = QPushButton("Fit")
         self.canvas_fit_button.setToolTip("Fit the canvas to the window")
-        self.canvas_zoom_label = QLabel("100%")
+        self.canvas_zoom_label = QLabel("Fit")
+        self.canvas_zoom_label.setToolTip("Use the mouse wheel or trackpad pinch to zoom")
         self.canvas_zoom_label.setMinimumWidth(44)
         self.canvas_zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         canvas_toolbar.addWidget(self.canvas_zoom_out_button)
