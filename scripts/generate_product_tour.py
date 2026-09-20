@@ -280,7 +280,7 @@ def generate() -> list[tuple[str, str, str]]:
         QTimer.singleShot(0, capture_shortcut_dialog)
         window.show_shortcut_settings()
         process_events(application)
-        entries.append(("07-shortcuts.png", "Configurable shortcuts", "Configure every keyboard shortcut in one dialog; settings are saved for the next launch."))
+        entries.append(("07-shortcuts.png", "Configurable shortcuts and Canvas behavior", "Configure every keyboard shortcut and the Canvas centering duration in one dialog; settings are saved for the next launch."))
 
         def capture_submit_dialog() -> None:
             dialog = visible_dialog()

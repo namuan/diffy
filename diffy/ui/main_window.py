@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QStackedWidget,
     QTextBrowser,
     QTextEdit,
@@ -282,10 +283,15 @@ class DiffViewer(QTextBrowser):
 
 
 class ShortcutDialog(QDialog):
-    def __init__(self, shortcuts: dict[str, QKeySequence], parent: QWidget | None = None):
+    def __init__(self, shortcuts: dict[str, QKeySequence], center_duration: int, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setWindowTitle("Keyboard shortcuts")
+        self.setWindowTitle("Settings")
         self.edits: dict[str, QKeySequenceEdit] = {}
+        self.center_duration = QSpinBox()
+        self.center_duration.setRange(100, 1000)
+        self.center_duration.setSingleStep(25)
+        self.center_duration.setSuffix(" ms")
+        self.center_duration.setValue(center_duration)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         for shortcut_id, label in SHORTCUT_LABELS.items():
@@ -293,6 +299,7 @@ class ShortcutDialog(QDialog):
             edit.setMaximumSequenceLength(1)
             self.edits[shortcut_id] = edit
             form.addRow(label, edit)
+        form.addRow("Canvas centering duration", self.center_duration)
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
         reset_button = buttons.addButton("Restore defaults", QDialogButtonBox.ButtonRole.ResetRole)
@@ -319,6 +326,9 @@ class ShortcutDialog(QDialog):
 
     def values(self) -> dict[str, QKeySequence]:
         return {shortcut_id: edit.keySequence() for shortcut_id, edit in self.edits.items()}
+
+    def centering_duration(self) -> int:
+        return self.center_duration.value()
 
 
 class QuickSearchDialog(QDialog):
@@ -463,6 +473,10 @@ class SpatialCanvas(QGraphicsView):
         self.node_proxies: dict[TreeNodeWidget, QGraphicsProxyWidget] = {}
         self.focused_node: TreeNodeWidget | None = None
         self.center_animation: QParallelAnimationGroup | None = None
+        self.center_duration = 350
+
+    def set_center_duration(self, duration: int) -> None:
+        self.center_duration = max(100, min(1000, duration))
 
     def set_shortcuts(self, shortcuts: dict[str, QKeySequence]) -> None:
         self.shortcuts = dict(shortcuts)
@@ -792,7 +806,7 @@ class SpatialCanvas(QGraphicsView):
             if start == end:
                 continue
             property_animation = QPropertyAnimation(scrollbar, b"value", animation)
-            property_animation.setDuration(180)
+            property_animation.setDuration(self.center_duration)
             property_animation.setStartValue(start)
             property_animation.setEndValue(end)
             property_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -1054,6 +1068,7 @@ class MainWindow(QMainWindow):
         self.selected_thread: ReviewThread | None = None
         self.hidden_reviewers: set[str] = set()
         self.settings = QSettings("namuan", "diffy")
+        self.center_duration = self._load_center_duration()
         self.shortcut_sequences = self._load_shortcuts()
         self._build_ui()
         if initial_ref:
@@ -1092,7 +1107,8 @@ class MainWindow(QMainWindow):
         self.copy_pr_button.clicked.connect(self.copy_pull_request)
         self.browser_button = self._create_tool_button("external-link.svg", "Open pull request in browser")
         self.browser_button.clicked.connect(self.open_pull_request_in_browser)
-        self.shortcuts_button = QPushButton("Shortcuts")
+        self.shortcuts_button = QPushButton("Settings")
+        self.shortcuts_button.setToolTip("Configure shortcuts and Canvas behavior")
         self.shortcuts_button.clicked.connect(self.show_shortcut_settings)
         toolbar.addWidget(self.reviewer_filter_button)
         toolbar.addWidget(self.copy_pr_button)
@@ -1149,6 +1165,7 @@ class MainWindow(QMainWindow):
         canvas_toolbar.addWidget(self.canvas_fit_button)
         canvas_layout.addLayout(canvas_toolbar)
         self.canvas = SpatialCanvas()
+        self.canvas.set_center_duration(self.center_duration)
         self.canvas.set_shortcuts(self.shortcut_sequences)
         self.canvas.file_selected.connect(self.open_diff)
         self.canvas.zoom_changed.connect(self._update_canvas_zoom_label)
@@ -1226,6 +1243,12 @@ class MainWindow(QMainWindow):
         self.refresh_action.triggered.connect(self.refresh)
         self.addAction(self.refresh_action)
 
+    def _load_center_duration(self) -> int:
+        try:
+            return max(100, min(1000, int(self.settings.value("canvas/center_duration", 350))))
+        except (TypeError, ValueError):
+            return 350
+
     def _load_shortcuts(self) -> dict[str, QKeySequence]:
         shortcuts = {}
         for shortcut_id, default in SHORTCUT_DEFAULTS.items():
@@ -1234,10 +1257,13 @@ class MainWindow(QMainWindow):
         return shortcuts
 
     def show_shortcut_settings(self) -> None:
-        dialog = ShortcutDialog(self.shortcut_sequences, self)
+        dialog = ShortcutDialog(self.shortcut_sequences, self.center_duration, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self.shortcut_sequences = dialog.values()
+        self.center_duration = dialog.centering_duration()
+        self.canvas.set_center_duration(self.center_duration)
+        self.settings.setValue("canvas/center_duration", self.center_duration)
         for shortcut_id, shortcut in self.shortcut_sequences.items():
             self.settings.setValue(
                 f"shortcuts/{shortcut_id}",

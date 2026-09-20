@@ -38,11 +38,11 @@ Hide comments from selected reviewers while keeping the diff and canvas counts i
 
 ![Reviewer filtering](../assets/product-tour/06-reviewer-filter.png)
 
-## Configurable shortcuts
+## Configurable shortcuts and Canvas behavior
 
-Configure every keyboard shortcut in one dialog; settings are saved for the next launch.
+Configure every keyboard shortcut and the Canvas centering duration in one dialog; settings are saved for the next launch.
 
-![Configurable shortcuts](../assets/product-tour/07-shortcuts.png)
+![Configurable shortcuts and Canvas behavior](../assets/product-tour/07-shortcuts.png)
 
 ## Submit review
 
