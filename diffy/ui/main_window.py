@@ -755,12 +755,12 @@ class SpatialCanvas(QGraphicsView):
         self.zoom_changed.emit(self.zoom, True)
 
     def set_zoom(self, zoom: float) -> None:
+        anchor = self.mapToScene(self.viewport().rect().center())
         self.auto_fit = False
         self.zoom = max(0.5, min(2.5, zoom))
         self.resetTransform()
         self.scale(self.fit_scale * self.zoom, self.fit_scale * self.zoom)
-        if self.focused_node and self.node_proxies.get(self.focused_node):
-            self._center_on_node(self.focused_node, animated=False)
+        self.centerOn(anchor)
         self.zoom_changed.emit(self.zoom, False)
 
     def zoom_in(self) -> None:
