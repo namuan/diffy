@@ -1550,7 +1550,10 @@ class MainWindow(QMainWindow):
     def show_canvas(self) -> None:
         logger.info("Showing canvas view")
         self.view_stack.setCurrentIndex(0)
-        self.canvas.focus_first_node()
+        if self.selected_file:
+            self.canvas.focus_node_by_target(self.selected_file.path)
+        else:
+            self.canvas.focus_first_node()
 
     def highlight_canvas_node(self, path: str) -> None:
         self.view_stack.setCurrentIndex(0)

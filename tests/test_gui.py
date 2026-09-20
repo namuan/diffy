@@ -128,6 +128,7 @@ class GuiIntegrationTest(unittest.TestCase):
             QTest.keyClick(window.diff_viewer, Qt.Key.Key_Escape)
             self.application.processEvents()
             self.assertEqual(window.view_stack.currentIndex(), 0)
+            self.assertEqual(window.canvas.focused_node.toolTip(), window.files[0].path)
             comment_thread = next(thread for thread in window.threads if thread.comments and thread.line)
             window.open_diff(comment_thread.path)
             rendered_diff = window.diff_viewer.toHtml()
