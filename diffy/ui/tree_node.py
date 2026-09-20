@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 class TreeNodeWidget(QWidget):
     clicked = Signal()
-    focused = Signal()
+    focused = Signal(object)
     key_action = Signal(str)
 
     def __init__(
@@ -99,7 +99,7 @@ class TreeNodeWidget(QWidget):
 
     def focusInEvent(self, event) -> None:
         super().focusInEvent(event)
-        self.focused.emit()
+        self.focused.emit(event.reason())
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:

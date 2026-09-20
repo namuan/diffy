@@ -724,7 +724,7 @@ class SpatialCanvas(QGraphicsView):
             )
             if callback:
                 node.clicked.connect(callback)
-            node.focused.connect(lambda node=node: self._node_focus_changed(node))
+            node.focused.connect(lambda reason, node=node: self._node_focus_changed(node, reason))
             node.key_action.connect(
                 lambda action, node=node, is_folder="📁" in icon, target=tooltip: self._handle_node_key(
                     node, action, is_folder, target
@@ -918,10 +918,13 @@ class SpatialCanvas(QGraphicsView):
         self.center_animation = animation
         animation.start()
 
-    def _node_focus_changed(self, node: TreeNodeWidget) -> None:
+    def _node_focus_changed(self, node: TreeNodeWidget, reason: Qt.FocusReason) -> None:
         if node not in self.node_widgets:
             return
+        already_focused = self.focused_node is node
         self.focused_node = node
+        if already_focused and reason == Qt.FocusReason.MouseFocusReason:
+            return
         self._center_on_node(node)
 
     def _focus_node(self, node: TreeNodeWidget) -> None:
@@ -931,7 +934,7 @@ class SpatialCanvas(QGraphicsView):
         self.focused_node = node
         node.setFocus(Qt.FocusReason.OtherFocusReason)
         if was_focused:
-            self._node_focus_changed(node)
+            self._node_focus_changed(node, Qt.FocusReason.OtherFocusReason)
 
     def focus_node_by_target(self, target: str) -> None:
         parts = [part for part in target.split("/") if part]
