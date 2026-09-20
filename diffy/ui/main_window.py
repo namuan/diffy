@@ -359,6 +359,7 @@ class QuickSearchDialog(QDialog):
 
 class SpatialCanvas(QGraphicsView):
     file_selected = Signal(str)
+    zoom_changed = Signal(float, bool)
 
     def __init__(self):
         super().__init__()
@@ -637,6 +638,25 @@ class SpatialCanvas(QGraphicsView):
         if rect.width() <= 0 or rect.height() <= 0:
             return
         self.fitInView(rect.adjusted(-16, -16, 16, 16), Qt.AspectRatioMode.KeepAspectRatio)
+        self.zoom = 1.0
+        self.zoom_changed.emit(self.zoom, True)
+
+    def set_zoom(self, zoom: float) -> None:
+        self.auto_fit = False
+        self.zoom = max(0.5, min(2.5, zoom))
+        self.resetTransform()
+        self.scale(self.zoom, self.zoom)
+        self.zoom_changed.emit(self.zoom, False)
+
+    def zoom_in(self) -> None:
+        self.set_zoom(self.zoom * 1.15)
+
+    def zoom_out(self) -> None:
+        self.set_zoom(self.zoom * 0.87)
+
+    def fit_canvas(self) -> None:
+        self.auto_fit = True
+        self._fit_tree()
 
     def focus_first_node(self) -> None:
         if self.node_widgets:
@@ -740,11 +760,8 @@ class SpatialCanvas(QGraphicsView):
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
-            self.auto_fit = False
             factor = 1.15 if event.angleDelta().y() > 0 else 0.87
-            self.zoom = max(0.5, min(2.5, self.zoom * factor))
-            self.resetTransform()
-            self.scale(self.zoom, self.zoom)
+            self.set_zoom(self.zoom * factor)
             event.accept()
             return
         super().wheelEvent(event)
@@ -838,8 +855,33 @@ class MainWindow(QMainWindow):
         canvas_page = QWidget()
         canvas_layout = QVBoxLayout(canvas_page)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_toolbar = QHBoxLayout()
+        canvas_toolbar.setContentsMargins(4, 0, 4, 4)
+        canvas_toolbar.addWidget(QLabel("Canvas"))
+        canvas_toolbar.addStretch()
+        canvas_toolbar.addWidget(QLabel("Zoom"))
+        self.canvas_zoom_out_button = QPushButton("−")
+        self.canvas_zoom_out_button.setFixedWidth(30)
+        self.canvas_zoom_out_button.setToolTip("Zoom out")
+        self.canvas_zoom_in_button = QPushButton("+")
+        self.canvas_zoom_in_button.setFixedWidth(30)
+        self.canvas_zoom_in_button.setToolTip("Zoom in")
+        self.canvas_fit_button = QPushButton("Fit")
+        self.canvas_fit_button.setToolTip("Fit the canvas to the window")
+        self.canvas_zoom_label = QLabel("100%")
+        self.canvas_zoom_label.setMinimumWidth(44)
+        self.canvas_zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        canvas_toolbar.addWidget(self.canvas_zoom_out_button)
+        canvas_toolbar.addWidget(self.canvas_zoom_label)
+        canvas_toolbar.addWidget(self.canvas_zoom_in_button)
+        canvas_toolbar.addWidget(self.canvas_fit_button)
+        canvas_layout.addLayout(canvas_toolbar)
         self.canvas = SpatialCanvas()
         self.canvas.file_selected.connect(self.open_diff)
+        self.canvas.zoom_changed.connect(self._update_canvas_zoom_label)
+        self.canvas_zoom_out_button.clicked.connect(self.canvas.zoom_out)
+        self.canvas_zoom_in_button.clicked.connect(self.canvas.zoom_in)
+        self.canvas_fit_button.clicked.connect(self.canvas.fit_canvas)
         canvas_layout.addWidget(self.canvas)
         self.view_stack.addWidget(canvas_page)
 
@@ -872,6 +914,10 @@ class MainWindow(QMainWindow):
         self.quick_search_shortcut.activated.connect(self.show_quick_search)
         self.setCentralWidget(root)
         self._set_busy(False)
+
+    @Slot(float, bool)
+    def _update_canvas_zoom_label(self, zoom: float, fitting: bool) -> None:
+        self.canvas_zoom_label.setText("Fit" if fitting else f"{round(zoom * 100)}%")
 
     def _create_tool_button(self, asset_name: str, tooltip: str) -> QToolButton:
         button = QToolButton()
