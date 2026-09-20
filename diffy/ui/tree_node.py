@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QFont, QKeySequence
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 
@@ -24,6 +24,8 @@ class TreeNodeWidget(QWidget):
         style: str,
         tooltip: str,
         shortcuts: dict[str, QKeySequence] | None = None,
+        font_family: str = "Helvetica",
+        font_size: int = 15,
     ):
         super().__init__()
         self.setObjectName("treeNode")
@@ -34,6 +36,7 @@ class TreeNodeWidget(QWidget):
         self.node_resolved_comment_count = resolved_comment_count
         self.node_comment_count = open_comment_count + resolved_comment_count
         self.shortcuts = shortcuts or {}
+        self.setFont(QFont(font_family, font_size))
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFixedSize(width, height)
         self.setToolTip(tooltip)
@@ -44,18 +47,21 @@ class TreeNodeWidget(QWidget):
         layout.setSpacing(8)
 
         icon_label = QLabel(icon)
+        icon_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         icon_label.setStyleSheet("font-size: 17px; background: transparent; border: 0;")
         layout.addWidget(icon_label)
 
         if status:
             status_label = QLabel(status)
             status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            status_label.setFont(QFont(font_family, 13))
             status_label.setFixedSize(22, 22)
-            status_label.setStyleSheet("background: #f1f5f9; color: #475569; border: 0; border-radius: 5px; font-weight: 600;")
+            status_label.setStyleSheet("background: #f1f5f9; color: #475569; border: 0; border-radius: 5px; font-size: 13px; font-weight: 600;")
             layout.addWidget(status_label)
 
         name_label = QLabel(name)
-        name_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        name_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+        name_label.setFont(QFont(font_family, font_size))
         name_label.setMinimumWidth(0)
         name_label.setStyleSheet("background: transparent; border: 0; color: #111827;")
         layout.addWidget(name_label)
@@ -63,26 +69,31 @@ class TreeNodeWidget(QWidget):
         if additions:
             additions_label = QLabel(f"+{additions}")
             additions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            additions_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             additions_label.setStyleSheet("background: #dcfce7; color: #15803d; border: 0; border-radius: 9px; padding: 2px 6px; font-size: 13px; font-weight: 600;")
             layout.addWidget(additions_label)
 
         if deletions:
             deletions_label = QLabel(f"-{deletions}")
             deletions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            deletions_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             deletions_label.setStyleSheet("background: #fee2e2; color: #b91c1c; border: 0; border-radius: 9px; padding: 2px 6px; font-size: 13px; font-weight: 600;")
             layout.addWidget(deletions_label)
 
         if open_comment_count:
             open_comment_label = QLabel(f"● {open_comment_count}")
             open_comment_label.setToolTip("Open comments")
+            open_comment_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             open_comment_label.setStyleSheet("background: transparent; color: #c026d3; border: 0; font-size: 13px; font-weight: 600;")
             layout.addWidget(open_comment_label)
         if resolved_comment_count:
             resolved_comment_label = QLabel(f"● {resolved_comment_count}")
             resolved_comment_label.setToolTip("Resolved comments")
+            resolved_comment_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             resolved_comment_label.setStyleSheet("background: transparent; color: #94a3b8; border: 0; font-size: 13px; font-weight: 600;")
             layout.addWidget(resolved_comment_label)
 
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         for child in self.findChildren(QLabel):
             child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 

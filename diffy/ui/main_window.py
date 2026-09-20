@@ -680,8 +680,22 @@ class SpatialCanvas(QGraphicsView):
             tooltip: str,
             callback=None,
         ) -> None:
-            node = TreeNodeWidget(icon, name, status, additions, deletions, comment_counts[0], comment_counts[1], width, node_height, style, tooltip, self.shortcuts)
-            node.setFont(QFont(self.font_family, self.font_size))
+            node = TreeNodeWidget(
+                icon,
+                name,
+                status,
+                additions,
+                deletions,
+                comment_counts[0],
+                comment_counts[1],
+                width,
+                node_height,
+                style,
+                tooltip,
+                self.shortcuts,
+                self.font_family,
+                self.font_size,
+            )
             if callback:
                 node.clicked.connect(callback)
             node.focused.connect(lambda node=node: self._node_focus_changed(node))
@@ -736,8 +750,6 @@ class SpatialCanvas(QGraphicsView):
                 file = value
                 status = {"modified": "M", "added": "A", "deleted": "D", "renamed": "R"}.get(file.status, "M")
                 filename = file.path.rsplit("/", 1)[-1]
-                if file.path in self.viewed:
-                    filename = f"✓  {filename}"
                 comment_counts = self.comment_counts.get(file.path, (0, 0))
                 width = estimated_width("📄", filename, status, file.additions, file.deletions, comment_counts)
                 if parent_position is not None:
