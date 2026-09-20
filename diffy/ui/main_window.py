@@ -807,7 +807,7 @@ class SpatialCanvas(QGraphicsView):
     def set_zoom(self, zoom: float) -> None:
         anchor = self.mapToScene(self.viewport().rect().center())
         self.auto_fit = False
-        self.zoom = max(0.5, min(2.5, zoom))
+        self.zoom = max(0.5, min(5.0, zoom))
         self.resetTransform()
         self.scale(self.fit_scale * self.zoom, self.fit_scale * self.zoom)
         self.centerOn(anchor)
