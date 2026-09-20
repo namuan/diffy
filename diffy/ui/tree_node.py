@@ -55,10 +55,10 @@ class TreeNodeWidget(QWidget):
             layout.addWidget(status_label)
 
         name_label = QLabel(name)
-        name_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        name_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         name_label.setMinimumWidth(0)
         name_label.setStyleSheet("background: transparent; border: 0; color: #111827;")
-        layout.addWidget(name_label, 1)
+        layout.addWidget(name_label)
 
         additions_label = QLabel(f"+{additions}")
         additions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
