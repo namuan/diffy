@@ -148,7 +148,7 @@ class DiffViewer(QTextBrowser):
 
     def set_diff_font_size(self, font_size: int) -> None:
         self.diff_font_size = font_size
-        self.setFont(QFont("SF Mono", font_size))
+        self.setFont(QFont(self.ui_font_family, font_size))
 
     def _inline_comment(self, author: str, body: str, resolved: bool = False) -> str:
         body_html = html.escape(body).replace("\n", "<br>")
@@ -235,7 +235,7 @@ class DiffViewer(QTextBrowser):
         self.setHtml(
             "<style>"
             "body { background: #ffffff; color: #111827; margin: 0; }"
-            f".diff-line {{ font-family: 'SF Mono'; font-size: {self.diff_font_size}pt; white-space: pre; }}"
+            f".diff-line {{ font-family: '{html.escape(self.ui_font_family)}'; font-size: {self.diff_font_size}pt; white-space: pre; }}"
             ".diff-line a { display: block; padding: 3px 8px; text-decoration: none; }"
             f".file-comments-header {{ margin: 8px 14px 4px 14px; color: #86198f; font-family: '{html.escape(self.ui_font_family)}'; font-size: {self.diff_font_size}pt; font-weight: 700; }}"
             f".inline-comment {{ margin: 4px 14px 10px 78px; padding: 9px 12px; border-left: 3px solid #c026d3; border-radius: 4px; background: #faf5ff; color: #312e81; font-family: '{html.escape(self.ui_font_family)}'; font-size: {self.diff_font_size}pt; white-space: normal; }}"
