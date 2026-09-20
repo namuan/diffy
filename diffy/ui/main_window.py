@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote, unquote
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRectF, QSettings, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QEvent, QEasingCurve, QObject, QPoint, QParallelAnimationGroup, QPropertyAnimation, QRectF, QSettings, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QInputDevice, QKeySequence, QNativeGestureEvent, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -462,6 +462,7 @@ class SpatialCanvas(QGraphicsView):
         self.node_widgets: list[TreeNodeWidget] = []
         self.node_proxies: dict[TreeNodeWidget, QGraphicsProxyWidget] = {}
         self.focused_node: TreeNodeWidget | None = None
+        self.center_animation: QParallelAnimationGroup | None = None
 
     def set_shortcuts(self, shortcuts: dict[str, QKeySequence]) -> None:
         self.shortcuts = dict(shortcuts)
@@ -736,7 +737,7 @@ class SpatialCanvas(QGraphicsView):
         self.setSceneRect(rect.adjusted(-horizontal_margin, -vertical_margin, horizontal_margin, vertical_margin))
         self.zoom = 1.0
         if self.focused_node and self.node_proxies.get(self.focused_node):
-            self.centerOn(self.node_proxies[self.focused_node])
+            self._center_on_node(self.focused_node, animated=False)
         self.zoom_changed.emit(self.zoom, True)
 
     def set_zoom(self, zoom: float) -> None:
@@ -745,7 +746,7 @@ class SpatialCanvas(QGraphicsView):
         self.resetTransform()
         self.scale(self.fit_scale * self.zoom, self.fit_scale * self.zoom)
         if self.focused_node and self.node_proxies.get(self.focused_node):
-            self.centerOn(self.node_proxies[self.focused_node])
+            self._center_on_node(self.focused_node, animated=False)
         self.zoom_changed.emit(self.zoom, False)
 
     def zoom_in(self) -> None:
@@ -764,13 +765,46 @@ class SpatialCanvas(QGraphicsView):
         else:
             self.setFocus()
 
+    def _center_on_node(self, node: TreeNodeWidget, animated: bool = True) -> None:
+        proxy = self.node_proxies.get(node)
+        if not proxy:
+            return
+        if self.center_animation:
+            self.center_animation.stop()
+        horizontal = self.horizontalScrollBar()
+        vertical = self.verticalScrollBar()
+        current_horizontal = horizontal.value()
+        current_vertical = vertical.value()
+        self.centerOn(proxy)
+        target_horizontal = horizontal.value()
+        target_vertical = vertical.value()
+        horizontal.setValue(current_horizontal)
+        vertical.setValue(current_vertical)
+        if not animated or (current_horizontal == target_horizontal and current_vertical == target_vertical):
+            horizontal.setValue(target_horizontal)
+            vertical.setValue(target_vertical)
+            return
+        animation = QParallelAnimationGroup(self)
+        for scrollbar, start, end in (
+            (horizontal, current_horizontal, target_horizontal),
+            (vertical, current_vertical, target_vertical),
+        ):
+            if start == end:
+                continue
+            property_animation = QPropertyAnimation(scrollbar, b"value", animation)
+            property_animation.setDuration(180)
+            property_animation.setStartValue(start)
+            property_animation.setEndValue(end)
+            property_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+            animation.addAnimation(property_animation)
+        self.center_animation = animation
+        animation.start()
+
     def _node_focus_changed(self, node: TreeNodeWidget) -> None:
         if node not in self.node_widgets:
             return
         self.focused_node = node
-        proxy = self.node_proxies.get(node)
-        if proxy:
-            self.centerOn(proxy)
+        self._center_on_node(node)
 
     def _focus_node(self, node: TreeNodeWidget) -> None:
         if node not in self.node_widgets:

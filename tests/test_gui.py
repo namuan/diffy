@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGraphicsProxyWidget, QMessageBox
 
@@ -17,7 +18,7 @@ from diffy.core.logging import configure_logging
 from diffy.core.models import PullRequestRef
 from diffy.services.gh_client import GHClient
 from diffy.services.persistence import Persistence
-from diffy.ui.main_window import MainWindow, QuickSearchDialog
+from diffy.ui.main_window import MainWindow, QuickSearchDialog, SHORTCUT_DEFAULTS
 from diffy.ui.tree_node import TreeNodeWidget
 
 
@@ -38,6 +39,8 @@ class GuiIntegrationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             database = Persistence(Path(temporary_directory) / "diffy.sqlite3")
             window = MainWindow(client=GHClient(), persistence=database)
+            window.shortcut_sequences = {shortcut_id: QKeySequence(value) for shortcut_id, value in SHORTCUT_DEFAULTS.items()}
+            window._apply_shortcuts()
             window.ref_input.setText(PULL_REQUEST_URL)
             errors: list[str] = []
             with patch.object(QMessageBox, "critical", side_effect=lambda *args: errors.append(str(args[-1]))):
