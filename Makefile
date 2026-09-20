@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help sync run build open doctor check test-gui clean
+.PHONY: help sync run build open doctor check test-gui tour clean
 
 help:
 	@printf '%s\n' \
@@ -11,6 +11,7 @@ help:
 		'make doctor               Verify system and project prerequisites' \
 		'make check                Compile the Python sources' \
 		'make test-gui            Run the GUI integration test' \
+		'make tour                Generate the product tour screenshots' \
 		'make clean                Remove generated build artifacts'
 
 sync:
@@ -53,6 +54,9 @@ check:
 
 test-gui:
 	QT_QPA_PLATFORM=offscreen uv run python -m unittest tests.test_gui -v
+
+tour:
+	QT_QPA_PLATFORM=offscreen uv run python scripts/generate_product_tour.py
 
 clean:
 	rm -rf build dist diffy.spec
