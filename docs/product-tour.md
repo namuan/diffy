@@ -12,28 +12,34 @@ Navigate the pull request through a compact file tree with change and comment ba
 
 Move through the tree with the arrow keys and expand or collapse folders with Space.
 
-![Keyboard navigation](../assets/product-tour/02-keyboard-navigation.png)
+![Keyboard navigation](../assets/product-tour/03-keyboard-navigation.png)
+
+## Open and resolved comments
+
+A file with both states shows purple open comments and gray resolved comments beside its change badges.
+
+![Open and resolved comments](../assets/product-tour/02-comment-status.png)
 
 ## Quick search
 
 Press Cmd+Shift+F to search files and highlight the selected result in the canvas.
 
-![Quick search](../assets/product-tour/03-quick-search.png)
+![Quick search](../assets/product-tour/04-quick-search.png)
 
 ## Diff and inline comments
 
 Review changed lines with inline threads, draft comments, and Reply or Resolve actions.
 
-![Diff and inline comments](../assets/product-tour/04-diff-comments.png)
+![Diff and inline comments](../assets/product-tour/05-diff-comments.png)
 
 ## Reviewer filtering
 
 Hide comments from selected reviewers while keeping the diff and canvas counts in sync.
 
-![Reviewer filtering](../assets/product-tour/05-reviewer-filter.png)
+![Reviewer filtering](../assets/product-tour/06-reviewer-filter.png)
 
 ## Submit review
 
 Submit a review summary and draft line comments as a comment, approval, or change request.
 
-![Submit review](../assets/product-tour/06-submit-review.png)
+![Submit review](../assets/product-tour/07-submit-review.png)

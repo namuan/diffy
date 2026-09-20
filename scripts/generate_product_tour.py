@@ -115,6 +115,24 @@ def fixture_pull_request() -> LoadedPullRequest:
             ],
         ),
         ReviewThread(
+            thread_id="thread-4",
+            path="src/review.py",
+            line=9,
+            start_line=None,
+            side="RIGHT",
+            start_side=None,
+            resolved=True,
+            comments=[
+                ReviewComment(
+                    database_id=104,
+                    body="This summary behavior is covered by the existing tests.",
+                    author="sam",
+                    created_at="2025-01-10T10:30:00Z",
+                    url="https://github.com/diffy-demo/review/pull/42#discussion_r104",
+                )
+            ],
+        ),
+        ReviewThread(
             thread_id="thread-2",
             path="src/search.py",
             line=3,
@@ -220,31 +238,33 @@ def generate() -> list[tuple[str, str, str]]:
         QTest.keyClick(window.canvas.focused_node, Qt.Key.Key_Right)
         QTest.keyClick(window.canvas.focused_node, Qt.Key.Key_Space)
         process_events(application)
-        capture_window(window, "02-keyboard-navigation")
-        entries.append(("02-keyboard-navigation.png", "Keyboard navigation", "Move through the tree with the arrow keys and expand or collapse folders with Space."))
+        capture_window(window, "03-keyboard-navigation")
+        entries.append(("03-keyboard-navigation.png", "Keyboard navigation", "Move through the tree with the arrow keys and expand or collapse folders with Space."))
         window.canvas.focus_node_by_target("src/review.py")
         process_events(application)
+        capture_window(window, "02-comment-status")
+        entries.append(("02-comment-status.png", "Open and resolved comments", "A file with both states shows purple open comments and gray resolved comments beside its change badges."))
 
         window.show_quick_search()
         process_events(application)
         search = window.quick_search_dialog
         search.search_input.setText("review")
         process_events(application)
-        capture_window(window, "03-quick-search", search)
-        entries.append(("03-quick-search.png", "Quick search", "Press Cmd+Shift+F to search files and highlight the selected result in the canvas."))
+        capture_window(window, "04-quick-search", search)
+        entries.append(("04-quick-search.png", "Quick search", "Press Cmd+Shift+F to search files and highlight the selected result in the canvas."))
         search.reject()
         process_events(application)
 
         window.open_diff("src/review.py")
         process_events(application)
-        capture_window(window, "04-diff-comments")
-        entries.append(("04-diff-comments.png", "Diff and inline comments", "Review changed lines with inline threads, draft comments, and Reply or Resolve actions."))
+        capture_window(window, "05-diff-comments")
+        entries.append(("05-diff-comments.png", "Diff and inline comments", "Review changed lines with inline threads, draft comments, and Reply or Resolve actions."))
 
         menu_position = window.reviewer_filter_button.mapToGlobal(QPoint(0, window.reviewer_filter_button.height()))
         window.reviewer_filter_menu.popup(menu_position)
         process_events(application)
-        capture_window(window, "05-reviewer-filter", window.reviewer_filter_menu)
-        entries.append(("05-reviewer-filter.png", "Reviewer filtering", "Hide comments from selected reviewers while keeping the diff and canvas counts in sync."))
+        capture_window(window, "06-reviewer-filter", window.reviewer_filter_menu)
+        entries.append(("06-reviewer-filter.png", "Reviewer filtering", "Hide comments from selected reviewers while keeping the diff and canvas counts in sync."))
         window.reviewer_filter_menu.close()
         window.show_canvas()
         process_events(application)
@@ -252,7 +272,7 @@ def generate() -> list[tuple[str, str, str]]:
         def capture_submit_dialog() -> None:
             dialog = visible_dialog()
             if dialog:
-                capture_window(window, "06-submit-review", dialog)
+                capture_window(window, "07-submit-review", dialog)
                 dialog.reject()
             else:
                 QTimer.singleShot(20, capture_submit_dialog)
@@ -260,7 +280,7 @@ def generate() -> list[tuple[str, str, str]]:
         QTimer.singleShot(0, capture_submit_dialog)
         window.submit_review()
         process_events(application)
-        entries.append(("06-submit-review.png", "Submit review", "Submit a review summary and draft line comments as a comment, approval, or change request."))
+        entries.append(("07-submit-review.png", "Submit review", "Submit a review summary and draft line comments as a comment, approval, or change request."))
         window.close()
     return entries
 

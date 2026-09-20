@@ -373,7 +373,7 @@ class SpatialCanvas(QGraphicsView):
         self.tree: dict = {"folders": {}, "files": []}
         self.viewed: set[str] = set()
         self.draft_counts: dict[str, int] = {}
-        self.comment_counts: dict[str, int] = {}
+        self.comment_counts: dict[str, tuple[int, int]] = {}
         self.files: list[ChangedFile] = []
         self.node_widgets: list[TreeNodeWidget] = []
         self.node_proxies: dict[TreeNodeWidget, QGraphicsProxyWidget] = {}
@@ -384,12 +384,13 @@ class SpatialCanvas(QGraphicsView):
         files: list[ChangedFile],
         viewed: set[str],
         draft_counts: dict[str, int],
-        comment_counts: dict[str, int] | None = None,
+        comment_counts: dict[str, tuple[int, int]] | None = None,
     ) -> None:
         self.comment_counts = comment_counts or {}
         self.auto_fit = True
         self.zoom = 1.0
-        logger.debug("Rendering changed-file tree files=%d viewed=%d drafts=%d comments=%d", len(files), len(viewed), sum(draft_counts.values()), sum(self.comment_counts.values()))
+        total_comments = sum(open_count + resolved_count for open_count, resolved_count in self.comment_counts.values())
+        logger.debug("Rendering changed-file tree files=%d viewed=%d drafts=%d comments=%d", len(files), len(viewed), sum(draft_counts.values()), total_comments)
         self.files = files
         self.viewed = viewed
         self.draft_counts = draft_counts
@@ -427,10 +428,14 @@ class SpatialCanvas(QGraphicsView):
             self._draft_count(child) for child in node["folders"].values()
         )
 
-    def _comment_count(self, node: dict) -> int:
-        return sum(self.comment_counts.get(file.path, 0) for file in node["files"]) + sum(
-            self._comment_count(child) for child in node["folders"].values()
-        )
+    def _comment_counts_for_node(self, node: dict) -> tuple[int, int]:
+        open_count = sum(self.comment_counts.get(file.path, (0, 0))[0] for file in node["files"])
+        resolved_count = sum(self.comment_counts.get(file.path, (0, 0))[1] for file in node["files"])
+        for child in node["folders"].values():
+            child_open, child_resolved = self._comment_counts_for_node(child)
+            open_count += child_open
+            resolved_count += child_resolved
+        return open_count, resolved_count
 
     def _render_tree(self) -> None:
         self.scene.clear()
@@ -442,29 +447,34 @@ class SpatialCanvas(QGraphicsView):
         column_gap = 90
         metrics = QFontMetrics(QFont("Helvetica", 15))
 
-        def estimated_width(icon: str, name: str, status: str | None, additions: int, deletions: int, comment_count: int) -> int:
+        def estimated_width(icon: str, name: str, status: str | None, additions: int, deletions: int, comment_counts: tuple[int, int]) -> int:
             icon_width = metrics.horizontalAdvance(icon)
             name_width = metrics.horizontalAdvance(name)
             status_width = 34 if status else 0
             additions_width = metrics.horizontalAdvance(f"+{additions}") + 16
             deletions_width = metrics.horizontalAdvance(f"-{deletions}") + 16
-            comment_width = metrics.horizontalAdvance(f"● {comment_count}") + 8 if comment_count else 0
+            open_count, resolved_count = comment_counts
+            comment_width = 0
+            if open_count:
+                comment_width += metrics.horizontalAdvance(f"● {open_count}") + 8
+            if resolved_count:
+                comment_width += metrics.horizontalAdvance(f"● {resolved_count}") + 8
             return max(285, 28 + icon_width + name_width + status_width + additions_width + deletions_width + comment_width + 28)
 
         root_additions, root_deletions = self._change_totals(self.tree)
-        max_node_width = estimated_width("⌄  📁", "Root", None, root_additions, root_deletions, self._comment_count(self.tree))
+        max_node_width = estimated_width("⌄  📁", "Root", None, root_additions, root_deletions, self._comment_counts_for_node(self.tree))
         for file in self.files:
             filename = file.path.rsplit("/", 1)[-1]
             max_node_width = max(
                 max_node_width,
-                estimated_width("📄", filename, "M", file.additions, file.deletions, self.comment_counts.get(file.path, 0)),
+                estimated_width("📄", filename, "M", file.additions, file.deletions, self.comment_counts.get(file.path, (0, 0))),
             )
         for folder in self.tree["folders"].values():
             for name in self._folder_names(folder):
                 folder_additions, folder_deletions = self._change_totals(folder)
                 max_node_width = max(
                     max_node_width,
-                    estimated_width("⌄  📁", name, None, folder_additions, folder_deletions, self._comment_count(folder)),
+                    estimated_width("⌄  📁", name, None, folder_additions, folder_deletions, self._comment_counts_for_node(folder)),
                 )
         column_width = max_node_width + 30
         left_margin = 30
@@ -501,7 +511,7 @@ class SpatialCanvas(QGraphicsView):
             status: str | None,
             additions: int,
             deletions: int,
-            comment_count: int,
+            comment_counts: tuple[int, int],
             x: float,
             y: float,
             width: int,
@@ -509,7 +519,7 @@ class SpatialCanvas(QGraphicsView):
             tooltip: str,
             callback=None,
         ) -> None:
-            node = TreeNodeWidget(icon, name, status, additions, deletions, comment_count, width, node_height, style, tooltip)
+            node = TreeNodeWidget(icon, name, status, additions, deletions, comment_counts[0], comment_counts[1], width, node_height, style, tooltip)
             if callback:
                 node.clicked.connect(callback)
             node.key_action.connect(
@@ -539,10 +549,10 @@ class SpatialCanvas(QGraphicsView):
                 folder_path = folder["path"]
                 collapsed = folder_path in self.collapsed_folders
                 marker = "▸" if collapsed else "⌄"
-                comment_count = self._comment_count(folder)
+                comment_counts = self._comment_counts_for_node(folder)
                 additions, deletions = self._change_totals(folder)
                 name = folder_path.rsplit("/", 1)[-1]
-                width = estimated_width(f"{marker}  📁", name, None, additions, deletions, comment_count)
+                width = estimated_width(f"{marker}  📁", name, None, additions, deletions, comment_counts)
                 if parent_position is not None:
                     add_connector(parent_position[0], parent_position[1], parent_position[2], x, y)
                 add_node(
@@ -551,7 +561,7 @@ class SpatialCanvas(QGraphicsView):
                     None,
                     additions,
                     deletions,
-                    comment_count,
+                    comment_counts,
                     x,
                     y,
                     width,
@@ -565,8 +575,8 @@ class SpatialCanvas(QGraphicsView):
                 filename = file.path.rsplit("/", 1)[-1]
                 if file.path in self.viewed:
                     filename = f"✓  {filename}"
-                comment_count = self.comment_counts.get(file.path, 0)
-                width = estimated_width("📄", filename, status, file.additions, file.deletions, comment_count)
+                comment_counts = self.comment_counts.get(file.path, (0, 0))
+                width = estimated_width("📄", filename, status, file.additions, file.deletions, comment_counts)
                 if parent_position is not None:
                     add_connector(parent_position[0], parent_position[1], parent_position[2], x, y)
                 add_node(
@@ -575,7 +585,7 @@ class SpatialCanvas(QGraphicsView):
                     status,
                     file.additions,
                     file.deletions,
-                    comment_count,
+                    comment_counts,
                     x,
                     y,
                     width,
@@ -596,14 +606,15 @@ class SpatialCanvas(QGraphicsView):
         def render_without_root() -> None:
             root_x = left_margin
             root_y = top_margin + (root_span - 1) / 2 * row_height
-            root_width = estimated_width("⌄  📁", "Root", None, root_additions, root_deletions, self._comment_count(self.tree))
+            root_comment_counts = self._comment_counts_for_node(self.tree)
+            root_width = estimated_width("⌄  📁", "Root", None, root_additions, root_deletions, root_comment_counts)
             add_node(
                 "⌄  📁",
                 "Root",
                 None,
                 root_additions,
                 root_deletions,
-                self._comment_count(self.tree),
+                root_comment_counts,
                 root_x,
                 root_y,
                 root_width,
@@ -973,12 +984,17 @@ class MainWindow(QMainWindow):
             self.hidden_reviewers.discard(reviewer)
         self._refresh_comment_views()
 
-    def _comment_counts(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
+    def _comment_counts(self) -> dict[str, tuple[int, int]]:
+        counts: dict[str, tuple[int, int]] = {}
         for thread in self.threads:
             visible_count = sum(comment.author not in self.hidden_reviewers for comment in thread.comments)
             if visible_count:
-                counts[thread.path] = counts.get(thread.path, 0) + visible_count
+                open_count, resolved_count = counts.get(thread.path, (0, 0))
+                if thread.resolved:
+                    resolved_count += visible_count
+                else:
+                    open_count += visible_count
+                counts[thread.path] = (open_count, resolved_count)
         return counts
 
     def _refresh_comment_views(self) -> None:
