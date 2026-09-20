@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 class TreeNodeWidget(QWidget):
     clicked = Signal()
+    focused = Signal()
     key_action = Signal(str)
 
     def __init__(
@@ -83,6 +84,10 @@ class TreeNodeWidget(QWidget):
         for child in self.findChildren(QLabel):
             child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
+    def focusInEvent(self, event) -> None:
+        super().focusInEvent(event)
+        self.focused.emit()
+
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.setFocus(Qt.FocusReason.MouseFocusReason)
@@ -102,6 +107,8 @@ class TreeNodeWidget(QWidget):
             "go_end": "end",
             "activate_node": "activate",
             "toggle_folder": "toggle",
+            "next_node": "next",
+            "previous_node": "previous",
             "expand_level": "expand_level",
             "collapse_level": "collapse_level",
         }
@@ -109,6 +116,13 @@ class TreeNodeWidget(QWidget):
             if shortcut.matches(event_sequence) == QKeySequence.SequenceMatch.ExactMatch:
                 return actions.get(shortcut_id)
         return None
+
+    def focusNextPrevChild(self, next: bool) -> bool:
+        action = "next_node" if next else "previous_node"
+        if action in self.shortcuts and not self.shortcuts[action].isEmpty():
+            self.key_action.emit("next" if next else "previous")
+            return True
+        return super().focusNextPrevChild(next)
 
     def keyPressEvent(self, event) -> None:
         action = self._shortcut_action(event)

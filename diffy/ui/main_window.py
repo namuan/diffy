@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote, unquote
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QSettings, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QPoint, QRectF, QSettings, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QInputDevice, QKeySequence, QNativeGestureEvent, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -67,6 +67,8 @@ SHORTCUT_DEFAULTS = {
     "go_end": "End",
     "activate_node": "Return",
     "toggle_folder": "Space",
+    "next_node": "Tab",
+    "previous_node": "Shift+Tab",
 }
 
 SHORTCUT_LABELS = {
@@ -83,6 +85,8 @@ SHORTCUT_LABELS = {
     "go_end": "Go to last node",
     "activate_node": "Open selected file",
     "toggle_folder": "Toggle folder",
+    "next_node": "Next node",
+    "previous_node": "Previous node",
 }
 
 
@@ -440,6 +444,7 @@ class SpatialCanvas(QGraphicsView):
         super().__init__()
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
+        self.viewport().installEventFilter(self)
         self.setMinimumHeight(180)
         self.setStyleSheet("QGraphicsView { border: 0; background: #f8fafc; }")
         self.setRenderHints(self.renderHints())
@@ -448,6 +453,7 @@ class SpatialCanvas(QGraphicsView):
         self.auto_fit = True
         self.collapsed_folders: set[str] = set()
         self.tree: dict = {"folders": {}, "files": []}
+        self.content_scene_rect = QRectF()
         self.viewed: set[str] = set()
         self.draft_counts: dict[str, int] = {}
         self.comment_counts: dict[str, tuple[int, int]] = {}
@@ -606,6 +612,7 @@ class SpatialCanvas(QGraphicsView):
             node = TreeNodeWidget(icon, name, status, additions, deletions, comment_counts[0], comment_counts[1], width, node_height, style, tooltip, self.shortcuts)
             if callback:
                 node.clicked.connect(callback)
+            node.focused.connect(lambda node=node: self._node_focus_changed(node))
             node.key_action.connect(
                 lambda action, node=node, is_folder="📁" in icon, target=tooltip: self._handle_node_key(
                     node, action, is_folder, target
@@ -712,17 +719,24 @@ class SpatialCanvas(QGraphicsView):
                 cursor += child_span
         render_without_root()
         self.scene.setSceneRect(0, 0, left_margin + (max_depth + 1) * column_width, top_margin * 2 + max(root_span, 1) * row_height)
+        self.content_scene_rect = self.scene.sceneRect()
         QTimer.singleShot(0, self._fit_tree)
 
     def _fit_tree(self) -> None:
         if not self.auto_fit or not self.scene.items():
             return
-        rect = self.scene.sceneRect()
+        rect = self.content_scene_rect
         if rect.width() <= 0 or rect.height() <= 0:
             return
+        self.setSceneRect(rect)
         self.fitInView(rect.adjusted(-16, -16, 16, 16), Qt.AspectRatioMode.KeepAspectRatio)
         self.fit_scale = max(self.transform().m11(), 0.001)
+        horizontal_margin = self.viewport().width() / (2 * self.fit_scale)
+        vertical_margin = self.viewport().height() / (2 * self.fit_scale)
+        self.setSceneRect(rect.adjusted(-horizontal_margin, -vertical_margin, horizontal_margin, vertical_margin))
         self.zoom = 1.0
+        if self.focused_node and self.node_proxies.get(self.focused_node):
+            self.centerOn(self.node_proxies[self.focused_node])
         self.zoom_changed.emit(self.zoom, True)
 
     def set_zoom(self, zoom: float) -> None:
@@ -730,6 +744,8 @@ class SpatialCanvas(QGraphicsView):
         self.zoom = max(0.5, min(2.5, zoom))
         self.resetTransform()
         self.scale(self.fit_scale * self.zoom, self.fit_scale * self.zoom)
+        if self.focused_node and self.node_proxies.get(self.focused_node):
+            self.centerOn(self.node_proxies[self.focused_node])
         self.zoom_changed.emit(self.zoom, False)
 
     def zoom_in(self) -> None:
@@ -748,14 +764,20 @@ class SpatialCanvas(QGraphicsView):
         else:
             self.setFocus()
 
+    def _node_focus_changed(self, node: TreeNodeWidget) -> None:
+        if node not in self.node_widgets:
+            return
+        self.focused_node = node
+        proxy = self.node_proxies.get(node)
+        if proxy:
+            self.centerOn(proxy)
+
     def _focus_node(self, node: TreeNodeWidget) -> None:
         if node not in self.node_widgets:
             return
         self.focused_node = node
         node.setFocus(Qt.FocusReason.OtherFocusReason)
-        proxy = self.node_proxies.get(node)
-        if proxy:
-            self.ensureVisible(proxy)
+        self._node_focus_changed(node)
 
     def focus_node_by_target(self, target: str) -> None:
         parts = [part for part in target.split("/") if part]
@@ -806,6 +828,10 @@ class SpatialCanvas(QGraphicsView):
             self.file_selected.emit(target)
         elif action == "toggle" and is_folder and target != "Root":
             self._toggle_folder(target)
+        elif action in {"next", "previous"} and self.node_widgets:
+            index = self.node_widgets.index(node)
+            offset = 1 if action == "next" else -1
+            self._focus_node(self.node_widgets[(index + offset) % len(self.node_widgets)])
         elif action == "expand_level":
             self.expand_one_level()
         elif action == "collapse_level":
@@ -822,6 +848,8 @@ class SpatialCanvas(QGraphicsView):
             "go_end": "end",
             "activate_node": "activate",
             "toggle_folder": "toggle",
+            "next_node": "next",
+            "previous_node": "previous",
             "expand_level": "expand_level",
             "collapse_level": "collapse_level",
         }
@@ -830,15 +858,34 @@ class SpatialCanvas(QGraphicsView):
                 return actions.get(shortcut_id)
         return None
 
+    def _handle_shortcut_action(self, action: str) -> bool:
+        if not self.node_widgets:
+            return False
+        node = self.focused_node
+        if node is None:
+            node = self.node_widgets[0 if action in {"down", "right", "home"} else -1]
+            self._focus_node(node)
+        else:
+            self._handle_node_key(node, action, "📁" in node.node_icon, node.toolTip())
+        return True
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self.viewport() and event.type() == QEvent.Type.KeyPress:
+            action = self._shortcut_action(event)
+            if action and self._handle_shortcut_action(action):
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+    def focusNextPrevChild(self, next: bool) -> bool:
+        action = "next_node" if next else "previous_node"
+        if action in self.shortcuts and not self.shortcuts[action].isEmpty() and self._handle_shortcut_action("next" if next else "previous"):
+            return True
+        return super().focusNextPrevChild(next)
+
     def keyPressEvent(self, event) -> None:
         action = self._shortcut_action(event)
-        if action and self.node_widgets:
-            node = self.focused_node
-            if node is None:
-                node = self.node_widgets[0 if action in {"down", "right", "home"} else -1]
-                self._focus_node(node)
-            else:
-                self._handle_node_key(node, action, "📁" in node.node_icon, node.toolTip())
+        if action and self._handle_shortcut_action(action):
             event.accept()
             return
         super().keyPressEvent(event)
