@@ -623,30 +623,56 @@ class SpatialCanvas(QGraphicsView):
             return max(220, 28 + icon_width + name_width + status_width + sum(badges) + spacing)
 
         root_additions, root_deletions = self._change_totals(self.tree)
-        max_node_width = estimated_width("⌄  📁", "Root", None, root_additions, root_deletions, self._comment_counts_for_node(self.tree))
-        for file in self.files:
-            filename = file.path.rsplit("/", 1)[-1]
-            max_node_width = max(
-                max_node_width,
-                estimated_width("📄", filename, "M", file.additions, file.deletions, self.comment_counts.get(file.path, (0, 0))),
-            )
-        for folder in self.tree["folders"].values():
-            for name in self._folder_names(folder):
-                folder_additions, folder_deletions = self._change_totals(folder)
-                max_node_width = max(
-                    max_node_width,
-                    estimated_width("⌄  📁", name, None, folder_additions, folder_deletions, self._comment_counts_for_node(folder)),
-                )
-        column_width = max_node_width + 30
         left_margin = 30
         top_margin = 30
+        column_gap = 18
         pen = QPen(QColor("#cbd5e1"), 2)
-        max_depth = 0
 
         def child_entries(node: dict) -> list[tuple[str, object]]:
             folders = [("folder", folder) for _, folder in sorted(node["folders"].items())]
             files = [("file", file) for file in sorted(node["files"], key=lambda item: item.path)]
             return folders + files
+
+        root_entry = ("folder", {"path": "Root", "folders": self.tree["folders"], "files": self.tree["files"]})
+
+        def entry_width(entry: tuple[str, object]) -> int:
+            kind, value = entry
+            if kind == "folder":
+                folder = value
+                marker = "▸" if folder["path"] in self.collapsed_folders else "⌄"
+                additions, deletions = self._change_totals(folder)
+                return estimated_width(
+                    f"{marker}  📁",
+                    folder["path"].rsplit("/", 1)[-1],
+                    None,
+                    additions,
+                    deletions,
+                    self._comment_counts_for_node(folder),
+                )
+            file = value
+            status = {"modified": "M", "added": "A", "deleted": "D", "renamed": "R"}.get(file.status, "M")
+            return estimated_width(
+                "📄",
+                file.path.rsplit("/", 1)[-1],
+                status,
+                file.additions,
+                file.deletions,
+                self.comment_counts.get(file.path, (0, 0)),
+            )
+
+        column_widths: dict[int, int] = {0: entry_width(root_entry)}
+
+        def collect_column_widths(node: dict, depth: int) -> None:
+            for entry in child_entries(node):
+                column_widths[depth] = max(column_widths.get(depth, 220), entry_width(entry))
+                if entry[0] == "folder" and entry[1]["path"] not in self.collapsed_folders:
+                    collect_column_widths(entry[1], depth + 1)
+
+        collect_column_widths(self.tree, 1)
+        max_depth = max(column_widths)
+        column_offsets = [left_margin]
+        for depth in range(1, max_depth + 1):
+            column_offsets.append(column_offsets[-1] + column_widths[depth - 1] + column_gap)
 
         def rows_for_entry(entry: tuple[str, object]) -> int:
             if entry[0] == "file":
@@ -719,7 +745,7 @@ class SpatialCanvas(QGraphicsView):
             kind, value = entry
             max_depth = max(max_depth, depth)
             span = rows_for_entry(entry)
-            x = left_margin + depth * column_width
+            x = column_offsets[depth]
             y = top_margin + (top_row + (span - 1) / 2) * row_height
             if kind == "folder":
                 folder = value
@@ -776,7 +802,6 @@ class SpatialCanvas(QGraphicsView):
                 cursor += child_span
             return x, y, span
 
-        root_entry = ("folder", {"path": "Root", "folders": self.tree["folders"], "files": self.tree["files"]})
         root_span = rows_for_entry(root_entry)
         def render_without_root() -> None:
             root_x = left_margin
@@ -802,7 +827,8 @@ class SpatialCanvas(QGraphicsView):
                 place_entry(child, 1, cursor, (root_x, root_y, root_width))
                 cursor += child_span
         render_without_root()
-        self.scene.setSceneRect(0, 0, left_margin + (max_depth + 1) * column_width, top_margin * 2 + max(root_span, 1) * row_height)
+        scene_width = left_margin + sum(column_widths.values()) + column_gap * max_depth + 30
+        self.scene.setSceneRect(0, 0, scene_width, top_margin * 2 + max(root_span, 1) * row_height)
         self.content_scene_rect = self.scene.sceneRect()
         QTimer.singleShot(0, self._fit_tree)
 
@@ -814,7 +840,10 @@ class SpatialCanvas(QGraphicsView):
             return
         self.setSceneRect(rect)
         self.fitInView(rect.adjusted(-16, -16, 16, 16), Qt.AspectRatioMode.KeepAspectRatio)
-        self.fit_scale = max(self.transform().m11(), 0.001)
+        self.fit_scale = max(self.transform().m11(), 0.75)
+        self.resetTransform()
+        self.scale(self.fit_scale, self.fit_scale)
+        self.centerOn(rect.center())
         horizontal_margin = self.viewport().width() / (2 * self.fit_scale)
         vertical_margin = self.viewport().height() / (2 * self.fit_scale)
         self.setSceneRect(rect.adjusted(-horizontal_margin, -vertical_margin, horizontal_margin, vertical_margin))
