@@ -60,25 +60,27 @@ class TreeNodeWidget(QWidget):
         name_label.setStyleSheet("background: transparent; border: 0; color: #111827;")
         layout.addWidget(name_label)
 
-        additions_label = QLabel(f"+{additions}")
-        additions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        additions_label.setStyleSheet("background: #dcfce7; color: #15803d; border: 0; border-radius: 12px; padding: 4px 7px; font-weight: 600;")
-        layout.addWidget(additions_label)
+        if additions:
+            additions_label = QLabel(f"+{additions}")
+            additions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            additions_label.setStyleSheet("background: #dcfce7; color: #15803d; border: 0; border-radius: 9px; padding: 2px 6px; font-size: 13px; font-weight: 600;")
+            layout.addWidget(additions_label)
 
-        deletions_label = QLabel(f"-{deletions}")
-        deletions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        deletions_label.setStyleSheet("background: #fee2e2; color: #b91c1c; border: 0; border-radius: 12px; padding: 4px 7px; font-weight: 600;")
-        layout.addWidget(deletions_label)
+        if deletions:
+            deletions_label = QLabel(f"-{deletions}")
+            deletions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            deletions_label.setStyleSheet("background: #fee2e2; color: #b91c1c; border: 0; border-radius: 9px; padding: 2px 6px; font-size: 13px; font-weight: 600;")
+            layout.addWidget(deletions_label)
 
         if open_comment_count:
             open_comment_label = QLabel(f"● {open_comment_count}")
             open_comment_label.setToolTip("Open comments")
-            open_comment_label.setStyleSheet("background: transparent; color: #c026d3; border: 0; font-weight: 600;")
+            open_comment_label.setStyleSheet("background: transparent; color: #c026d3; border: 0; font-size: 13px; font-weight: 600;")
             layout.addWidget(open_comment_label)
         if resolved_comment_count:
             resolved_comment_label = QLabel(f"● {resolved_comment_count}")
             resolved_comment_label.setToolTip("Resolved comments")
-            resolved_comment_label.setStyleSheet("background: transparent; color: #94a3b8; border: 0; font-weight: 600;")
+            resolved_comment_label.setStyleSheet("background: transparent; color: #94a3b8; border: 0; font-size: 13px; font-weight: 600;")
             layout.addWidget(resolved_comment_label)
 
         for child in self.findChildren(QLabel):

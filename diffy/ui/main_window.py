@@ -601,19 +601,26 @@ class SpatialCanvas(QGraphicsView):
         column_gap = 90
         metrics = QFontMetrics(QFont(self.font_family, self.font_size))
 
+        badge_metrics = QFontMetrics(QFont(self.font_family, 13))
+
+        def badge_width(value: str) -> int:
+            return badge_metrics.horizontalAdvance(value) + 12
+
         def estimated_width(icon: str, name: str, status: str | None, additions: int, deletions: int, comment_counts: tuple[int, int]) -> int:
             icon_width = metrics.horizontalAdvance(icon)
             name_width = metrics.horizontalAdvance(name)
             status_width = 34 if status else 0
-            additions_width = metrics.horizontalAdvance(f"+{additions}") + 16
-            deletions_width = metrics.horizontalAdvance(f"-{deletions}") + 16
             open_count, resolved_count = comment_counts
-            comment_width = 0
+            badges = [badge_width(f"+{additions}")] if additions else []
+            if deletions:
+                badges.append(badge_width(f"-{deletions}"))
             if open_count:
-                comment_width += metrics.horizontalAdvance(f"● {open_count}") + 8
+                badges.append(badge_width(f"● {open_count}"))
             if resolved_count:
-                comment_width += metrics.horizontalAdvance(f"● {resolved_count}") + 8
-            return max(285, 28 + icon_width + name_width + status_width + additions_width + deletions_width + comment_width + 28)
+                badges.append(badge_width(f"● {resolved_count}"))
+            child_count = 2 + bool(status) + len(badges)
+            spacing = max(0, child_count - 1) * 8
+            return max(220, 28 + icon_width + name_width + status_width + sum(badges) + spacing)
 
         root_additions, root_deletions = self._change_totals(self.tree)
         max_node_width = estimated_width("⌄  📁", "Root", None, root_additions, root_deletions, self._comment_counts_for_node(self.tree))
