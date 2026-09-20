@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from PySide6.QtCore import QEvent, QEasingCurve, QObject, QPoint, QParallelAnimationGroup, QPropertyAnimation, QRectF, QSettings, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QInputDevice, QKeySequence, QNativeGestureEvent, QPalette, QPen, QShortcut, QWheelEvent
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontDatabase, QFontMetrics, QIcon, QInputDevice, QKeySequence, QNativeGestureEvent, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFontComboBox,
     QGraphicsProxyWidget,
     QGraphicsScene,
     QGraphicsView,
@@ -135,10 +136,14 @@ class DiffViewer(QTextBrowser):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._context_menu_requested)
         self.setFont(QFont("SF Mono", 12))
+        self.ui_font_family = "Helvetica"
         self.setStyleSheet("QTextBrowser { background: #ffffff; color: #111827; border: 0; }")
         self.lines = []
         self.file_path = ""
         self.selected_index: int | None = None
+
+    def set_ui_font(self, font_family: str) -> None:
+        self.ui_font_family = font_family
 
     def _inline_comment(self, author: str, body: str, resolved: bool = False) -> str:
         body_html = html.escape(body).replace("\n", "<br>")
@@ -227,13 +232,13 @@ class DiffViewer(QTextBrowser):
             "body { background: #ffffff; color: #111827; margin: 0; }"
             ".diff-line { font-family: 'SF Mono'; font-size: 12pt; white-space: pre; }"
             ".diff-line a { display: block; padding: 3px 8px; text-decoration: none; }"
-            ".file-comments-header { margin: 8px 14px 4px 14px; color: #86198f; font-family: -apple-system; font-size: 11pt; font-weight: 700; }"
-            ".inline-comment { margin: 4px 14px 10px 78px; padding: 9px 12px; border-left: 3px solid #c026d3; border-radius: 4px; background: #faf5ff; color: #312e81; font-family: -apple-system; font-size: 11pt; white-space: normal; }"
+            f".file-comments-header {{ margin: 8px 14px 4px 14px; color: #86198f; font-family: '{html.escape(self.ui_font_family)}'; font-size: 11pt; font-weight: 700; }}"
+            f".inline-comment {{ margin: 4px 14px 10px 78px; padding: 9px 12px; border-left: 3px solid #c026d3; border-radius: 4px; background: #faf5ff; color: #312e81; font-family: '{html.escape(self.ui_font_family)}'; font-size: 11pt; white-space: normal; }}"
             ".inline-comment.resolved { border-left-color: #94a3b8; background: #f8fafc; color: #475569; }"
             ".comment-meta { font-weight: 600; margin-bottom: 3px; }"
             ".comment-dot { color: #c026d3; }"
             ".thread-actions { margin: -4px 14px 10px 78px; white-space: normal; }"
-            ".thread-actions a { display: inline-block; margin-right: 8px; padding: 4px 12px; border: 1px solid #d1d5db; border-radius: 6px; background: #f3f4f6; color: #374151; font-family: -apple-system; font-size: 11pt; text-decoration: none; }"
+            f".thread-actions a {{ display: inline-block; margin-right: 8px; padding: 4px 12px; border: 1px solid #d1d5db; border-radius: 6px; background: #f3f4f6; color: #374151; font-family: '{html.escape(self.ui_font_family)}'; font-size: 11pt; text-decoration: none; }}"
             ".thread-actions a:hover { background: #e5e7eb; border-color: #9ca3af; }"
             ".empty-diff { color: #6b7280; padding: 8px; }"
             "</style>"
@@ -283,7 +288,7 @@ class DiffViewer(QTextBrowser):
 
 
 class ShortcutDialog(QDialog):
-    def __init__(self, shortcuts: dict[str, QKeySequence], center_duration: int, parent: QWidget | None = None):
+    def __init__(self, shortcuts: dict[str, QKeySequence], center_duration: int, font_family: str, parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.edits: dict[str, QKeySequenceEdit] = {}
@@ -292,6 +297,8 @@ class ShortcutDialog(QDialog):
         self.center_duration.setSingleStep(25)
         self.center_duration.setSuffix(" ms")
         self.center_duration.setValue(center_duration)
+        self.font_selector = QFontComboBox()
+        self.font_selector.setCurrentFont(QFont(font_family))
         layout = QVBoxLayout(self)
         form = QFormLayout()
         for shortcut_id, label in SHORTCUT_LABELS.items():
@@ -300,6 +307,7 @@ class ShortcutDialog(QDialog):
             self.edits[shortcut_id] = edit
             form.addRow(label, edit)
         form.addRow("Canvas centering duration", self.center_duration)
+        form.addRow("Application font", self.font_selector)
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
         reset_button = buttons.addButton("Restore defaults", QDialogButtonBox.ButtonRole.ResetRole)
@@ -307,7 +315,7 @@ class ShortcutDialog(QDialog):
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        self.resize(460, 420)
+        self.resize(500, 600)
 
     def restore_defaults(self) -> None:
         for shortcut_id, default in SHORTCUT_DEFAULTS.items():
@@ -329,6 +337,9 @@ class ShortcutDialog(QDialog):
 
     def centering_duration(self) -> int:
         return self.center_duration.value()
+
+    def font_family(self) -> str:
+        return self.font_selector.currentFont().family()
 
 
 class QuickSearchDialog(QDialog):
@@ -460,6 +471,7 @@ class SpatialCanvas(QGraphicsView):
         self.setRenderHints(self.renderHints())
         self.zoom = 1.0
         self.fit_scale = 1.0
+        self.font_family = "Helvetica"
         self.auto_fit = True
         self.collapsed_folders: set[str] = set()
         self.tree: dict = {"folders": {}, "files": []}
@@ -477,6 +489,11 @@ class SpatialCanvas(QGraphicsView):
 
     def set_center_duration(self, duration: int) -> None:
         self.center_duration = max(100, min(1000, duration))
+
+    def set_font_family(self, font_family: str) -> None:
+        self.font_family = font_family
+        if self.files:
+            self._render_tree()
 
     def set_shortcuts(self, shortcuts: dict[str, QKeySequence]) -> None:
         self.shortcuts = dict(shortcuts)
@@ -550,7 +567,7 @@ class SpatialCanvas(QGraphicsView):
         row_height = 88
         node_height = 64
         column_gap = 90
-        metrics = QFontMetrics(QFont("Helvetica", 15))
+        metrics = QFontMetrics(QFont(self.font_family, 15))
 
         def estimated_width(icon: str, name: str, status: str | None, additions: int, deletions: int, comment_counts: tuple[int, int]) -> int:
             icon_width = metrics.horizontalAdvance(icon)
@@ -1069,6 +1086,9 @@ class MainWindow(QMainWindow):
         self.hidden_reviewers: set[str] = set()
         self.settings = QSettings("namuan", "diffy")
         self.center_duration = self._load_center_duration()
+        self.font_family = self._load_font_family()
+        QApplication.setFont(QFont(self.font_family))
+        self.setFont(QFont(self.font_family))
         self.shortcut_sequences = self._load_shortcuts()
         self._build_ui()
         if initial_ref:
@@ -1166,6 +1186,7 @@ class MainWindow(QMainWindow):
         canvas_layout.addLayout(canvas_toolbar)
         self.canvas = SpatialCanvas()
         self.canvas.set_center_duration(self.center_duration)
+        self.canvas.set_font_family(self.font_family)
         self.canvas.set_shortcuts(self.shortcut_sequences)
         self.canvas.file_selected.connect(self.open_diff)
         self.canvas.zoom_changed.connect(self._update_canvas_zoom_label)
@@ -1193,6 +1214,7 @@ class MainWindow(QMainWindow):
         diff_toolbar.addStretch()
         content_layout.addLayout(diff_toolbar)
         self.diff_viewer = DiffViewer()
+        self.diff_viewer.set_ui_font(self.font_family)
         self.diff_viewer.line_selected.connect(self._line_selected)
         self.diff_viewer.comment_requested.connect(self._comment_requested)
         self.diff_viewer.thread_action.connect(self._thread_action_requested)
@@ -1249,6 +1271,14 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             return 350
 
+    def _load_font_family(self) -> str:
+        default = "Helvetica"
+        if default not in QFontDatabase.families():
+            default = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont).family()
+        stored = self.settings.value("appearance/font_family")
+        family = str(stored) if stored else default
+        return family if family in QFontDatabase.families() else default
+
     def _load_shortcuts(self) -> dict[str, QKeySequence]:
         shortcuts = {}
         for shortcut_id, default in SHORTCUT_DEFAULTS.items():
@@ -1257,13 +1287,19 @@ class MainWindow(QMainWindow):
         return shortcuts
 
     def show_shortcut_settings(self) -> None:
-        dialog = ShortcutDialog(self.shortcut_sequences, self.center_duration, self)
+        dialog = ShortcutDialog(self.shortcut_sequences, self.center_duration, self.font_family, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self.shortcut_sequences = dialog.values()
         self.center_duration = dialog.centering_duration()
-        self.canvas.set_center_duration(self.center_duration)
+        self.font_family = dialog.font_family()
         self.settings.setValue("canvas/center_duration", self.center_duration)
+        self.settings.setValue("appearance/font_family", self.font_family)
+        QApplication.setFont(QFont(self.font_family))
+        self.setFont(QFont(self.font_family))
+        self.canvas.set_center_duration(self.center_duration)
+        self.canvas.set_font_family(self.font_family)
+        self.diff_viewer.set_ui_font(self.font_family)
         for shortcut_id, shortcut in self.shortcut_sequences.items():
             self.settings.setValue(
                 f"shortcuts/{shortcut_id}",

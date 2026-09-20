@@ -7,14 +7,14 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QTimer, Qt
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QFont, QImage, QKeySequence, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 from diffy.core.models import DraftComment, PullRequest, PullRequestRef, ReviewComment, ReviewThread
 from diffy.services.gh_client import LoadedPullRequest
 from diffy.services.persistence import Persistence
-from diffy.ui.main_window import MainWindow
+from diffy.ui.main_window import MainWindow, SHORTCUT_DEFAULTS
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT / "assets" / "product-tour"
@@ -221,6 +221,15 @@ def generate() -> list[tuple[str, str, str]]:
     with tempfile.TemporaryDirectory() as temporary_directory:
         persistence = Persistence(Path(temporary_directory) / "tour.sqlite3")
         window = MainWindow(persistence=persistence)
+        window.shortcut_sequences = {shortcut_id: QKeySequence(value) for shortcut_id, value in SHORTCUT_DEFAULTS.items()}
+        window.center_duration = 350
+        window.font_family = "Helvetica"
+        QApplication.setFont(QFont(window.font_family))
+        window.setFont(QFont(window.font_family))
+        window._apply_shortcuts()
+        window.canvas.set_center_duration(window.center_duration)
+        window.canvas.set_font_family(window.font_family)
+        window.diff_viewer.set_ui_font(window.font_family)
         window.resize(1450, 950)
         window.show()
         loaded = fixture_pull_request()
