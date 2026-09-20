@@ -89,6 +89,15 @@ class TreeNodeWidget(QWidget):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:
+        if event.modifiers() & Qt.KeyboardModifier.MetaModifier:
+            if event.key() == Qt.Key.Key_Right:
+                self.key_action.emit("expand_level")
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_Left:
+                self.key_action.emit("collapse_level")
+                event.accept()
+                return
         actions = {
             Qt.Key.Key_Up: "up",
             Qt.Key.Key_Down: "down",

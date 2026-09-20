@@ -239,7 +239,7 @@ def generate() -> list[tuple[str, str, str]]:
         QTest.keyClick(window.canvas.focused_node, Qt.Key.Key_Space)
         process_events(application)
         capture_window(window, "03-keyboard-navigation")
-        entries.append(("03-keyboard-navigation.png", "Keyboard navigation", "Move through the tree with the arrow keys and expand or collapse folders with Space."))
+        entries.append(("03-keyboard-navigation.png", "Keyboard navigation", "Move through the tree with the arrow keys, use Space for folders, and use Cmd+Right or Cmd+Left to expand or collapse one level."))
         window.canvas.focus_node_by_target("src/review.py")
         process_events(application)
         capture_window(window, "02-comment-status")

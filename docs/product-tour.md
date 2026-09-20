@@ -10,7 +10,7 @@ Navigate the pull request through a compact file tree with change and comment ba
 
 ## Keyboard navigation
 
-Move through the tree with the arrow keys and expand or collapse folders with Space.
+Move through the tree with the arrow keys, use Space for folders, and use Cmd+Right or Cmd+Left to expand or collapse one level.
 
 ![Keyboard navigation](../assets/product-tour/03-keyboard-navigation.png)
 

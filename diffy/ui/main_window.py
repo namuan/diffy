@@ -725,8 +725,21 @@ class SpatialCanvas(QGraphicsView):
             self.file_selected.emit(target)
         elif action == "toggle" and is_folder and target != "Root":
             self._toggle_folder(target)
+        elif action == "expand_level":
+            self.expand_one_level()
+        elif action == "collapse_level":
+            self.collapse_one_level()
 
     def keyPressEvent(self, event) -> None:
+        if event.modifiers() & Qt.KeyboardModifier.MetaModifier:
+            if event.key() == Qt.Key.Key_Right:
+                self.expand_one_level()
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_Left:
+                self.collapse_one_level()
+                event.accept()
+                return
         actions = {
             Qt.Key.Key_Up: "up",
             Qt.Key.Key_Down: "down",
@@ -750,6 +763,62 @@ class SpatialCanvas(QGraphicsView):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         QTimer.singleShot(0, self._fit_tree)
+
+    def _all_folder_paths(self, node: dict) -> set[str]:
+        paths: set[str] = set()
+        for folder in node["folders"].values():
+            paths.add(folder["path"])
+            paths.update(self._all_folder_paths(folder))
+        return paths
+
+    def expand_all(self) -> None:
+        self.collapsed_folders.clear()
+        self._render_tree()
+        QTimer.singleShot(0, lambda: self.focus_node_by_target("Root"))
+
+    def collapse_all(self) -> None:
+        self.collapsed_folders = self._all_folder_paths(self.tree)
+        self._render_tree()
+        QTimer.singleShot(0, lambda: self.focus_node_by_target("Root"))
+
+    def _folder_at_path(self, path: str) -> dict | None:
+        current = self.tree
+        for part in path.split("/"):
+            current = current.get("folders", {}).get(part)
+            if current is None:
+                return None
+        return current
+
+    def expand_one_level(self) -> None:
+        if not self.focused_node:
+            return
+        target = self.focused_node.toolTip()
+        folder_path = target if "📁" in self.focused_node.node_icon else target.rsplit("/", 1)[0]
+        folder = self.tree if target == "Root" else self._folder_at_path(folder_path)
+        if folder is None:
+            return
+        if folder_path in self.collapsed_folders:
+            changed = {folder_path}
+            self.collapsed_folders.remove(folder_path)
+        else:
+            changed = {child["path"] for child in folder["folders"].values() if child["path"] in self.collapsed_folders}
+            self.collapsed_folders.difference_update(changed)
+        if changed:
+            self._render_tree()
+            QTimer.singleShot(0, lambda: self.focus_node_by_target(target))
+
+    def collapse_one_level(self) -> None:
+        if not self.focused_node:
+            return
+        target = self.focused_node.toolTip()
+        if target == "Root":
+            self.collapse_all()
+            return
+        folder_path = target if "📁" in self.focused_node.node_icon else target.rsplit("/", 1)[0]
+        if folder_path and folder_path != "Root":
+            self.collapsed_folders.add(folder_path)
+            self._render_tree()
+            QTimer.singleShot(0, lambda: self.focus_node_by_target(folder_path))
 
     def _toggle_folder(self, path: str) -> None:
         if path in self.collapsed_folders:
@@ -882,7 +951,15 @@ class MainWindow(QMainWindow):
         canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_toolbar = QHBoxLayout()
         canvas_toolbar.setContentsMargins(4, 0, 4, 4)
-        canvas_toolbar.addWidget(QLabel("Canvas"))
+        self.canvas_title_label = QLabel("Canvas")
+        self.canvas_title_label.setToolTip("⌘→ expands one level and ⌘← collapses one level from the focused node")
+        canvas_toolbar.addWidget(self.canvas_title_label)
+        self.expand_all_button = QPushButton("Expand all")
+        self.expand_all_button.setToolTip("Expand all folders")
+        self.collapse_all_button = QPushButton("Collapse all")
+        self.collapse_all_button.setToolTip("Collapse all folders")
+        canvas_toolbar.addWidget(self.expand_all_button)
+        canvas_toolbar.addWidget(self.collapse_all_button)
         canvas_toolbar.addStretch()
         canvas_toolbar.addWidget(QLabel("Zoom"))
         self.canvas_zoom_out_button = QPushButton("−")
@@ -908,6 +985,14 @@ class MainWindow(QMainWindow):
         self.canvas_zoom_out_button.clicked.connect(self.canvas.zoom_out)
         self.canvas_zoom_in_button.clicked.connect(self.canvas.zoom_in)
         self.canvas_fit_button.clicked.connect(self.canvas.fit_canvas)
+        self.expand_all_button.clicked.connect(self.canvas.expand_all)
+        self.collapse_all_button.clicked.connect(self.canvas.collapse_all)
+        self.expand_level_shortcut = QShortcut(QKeySequence("Meta+Right"), self)
+        self.expand_level_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.expand_level_shortcut.activated.connect(self._expand_canvas_level)
+        self.collapse_level_shortcut = QShortcut(QKeySequence("Meta+Left"), self)
+        self.collapse_level_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.collapse_level_shortcut.activated.connect(self._collapse_canvas_level)
         canvas_layout.addWidget(self.canvas)
         self.view_stack.addWidget(canvas_page)
 
@@ -944,6 +1029,17 @@ class MainWindow(QMainWindow):
     @Slot(float, bool)
     def _update_canvas_zoom_label(self, zoom: float, fitting: bool) -> None:
         self.canvas_zoom_label.setText("Fit" if fitting else f"{round(zoom * 100)}%")
+
+    def _canvas_node_is_focused(self) -> bool:
+        return self.view_stack.currentIndex() == 0 and self.canvas.focused_node is not None and self.canvas.focused_node.hasFocus()
+
+    def _expand_canvas_level(self) -> None:
+        if self._canvas_node_is_focused():
+            self.canvas.expand_one_level()
+
+    def _collapse_canvas_level(self) -> None:
+        if self._canvas_node_is_focused():
+            self.canvas.collapse_one_level()
 
     def _create_tool_button(self, asset_name: str, tooltip: str) -> QToolButton:
         button = QToolButton()
