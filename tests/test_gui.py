@@ -17,7 +17,7 @@ from diffy.core.logging import configure_logging
 from diffy.core.models import PullRequestRef
 from diffy.services.gh_client import GHClient
 from diffy.services.persistence import Persistence
-from diffy.ui.main_window import MainWindow
+from diffy.ui.main_window import MainWindow, QuickSearchDialog
 from diffy.ui.tree_node import TreeNodeWidget
 
 
@@ -117,6 +117,15 @@ class GuiIntegrationTest(unittest.TestCase):
             file_comment_html = window.diff_viewer.toHtml()
             self.assertIn("File comments", file_comment_html)
             self.assertIn(file_comment_thread.comments[0].author, file_comment_html)
+            search = QuickSearchDialog(window.files, window)
+            search.search_input.setText("provider")
+            self.application.processEvents()
+            self.assertEqual(search.results.count(), 2)
+            selected_paths: list[str] = []
+            search.selected.connect(selected_paths.append)
+            QTest.keyClick(search.search_input, Qt.Key.Key_Return)
+            self.assertEqual(selected_paths, ["cmd/opencodereview/provider_cmd.go"])
+            self.assertEqual(window.quick_search_shortcut.key().toString(), "Meta+Shift+F")
             window.close()
 
 

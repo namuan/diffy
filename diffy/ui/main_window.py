@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote, unquote
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QPoint, QRunnable, QThreadPool, QTimer, QSize, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPalette, QPen, QShortcut, QWheelEvent
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QComboBox,
     QDialog,
@@ -17,10 +18,13 @@ from PySide6.QtWidgets import (
     QGraphicsProxyWidget,
     QGraphicsScene,
     QGraphicsView,
+    QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -236,6 +240,120 @@ class DiffViewer(QTextBrowser):
         if 0 <= index < len(self.lines):
             self.selected_index = index
             self.line_selected.emit(index)
+
+
+class QuickSearchDialog(QDialog):
+    selected = Signal(str)
+
+    def __init__(self, files: list[ChangedFile], parent: QWidget | None = None):
+        super().__init__(parent)
+        self.files = files
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(420)
+        self.setStyleSheet(
+            "QDialog { background: transparent; }"
+            "QFrame#searchPopup { background: #f8f9fc; border: 1px solid #cbd5e1; border-radius: 12px; }"
+            "QLineEdit { background: transparent; border: 0; color: #1f2937; font-size: 15px; padding: 6px 0; }"
+            "QLabel#matchCount, QLabel#position { color: #6b7280; font-size: 11px; }"
+            "QListWidget { background: transparent; border: 0; outline: 0; padding: 4px 8px 8px; }"
+            "QListWidget::item { border-radius: 6px; padding: 0; }"
+            "QListWidget::item:selected { background: #bfd7f5; }"
+        )
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        frame = QFrame()
+        frame.setObjectName("searchPopup")
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(10, 8, 10, 8)
+        frame_layout.setSpacing(2)
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_icon = QLabel("⌕")
+        search_icon.setStyleSheet("color: #6b7280; font-size: 18px; padding-right: 4px;")
+        search_row.addWidget(search_icon)
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search files")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.installEventFilter(self)
+        self.search_input.textChanged.connect(self._search)
+        self.search_input.returnPressed.connect(self._activate_current)
+        search_row.addWidget(self.search_input, 1)
+        frame_layout.addLayout(search_row)
+        meta_row = QHBoxLayout()
+        self.match_count = QLabel()
+        self.match_count.setObjectName("matchCount")
+        self.position = QLabel()
+        self.position.setObjectName("position")
+        meta_row.addWidget(self.match_count)
+        meta_row.addStretch()
+        meta_row.addWidget(self.position)
+        frame_layout.addLayout(meta_row)
+        self.results = QListWidget()
+        self.results.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.results.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.results.itemActivated.connect(self._activate_item)
+        self.results.currentRowChanged.connect(self._update_position)
+        frame_layout.addWidget(self.results)
+        outer_layout.addWidget(frame)
+        self._search("")
+
+    def _search(self, query: str) -> None:
+        normalized = query.strip().lower()
+        matches = [file for file in self.files if not normalized or normalized in file.path.lower()]
+        self.results.clear()
+        for file in matches:
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, file.path)
+            item.setSizeHint(QSize(0, 48))
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(8, 4, 8, 4)
+            icon = QLabel("📄")
+            row_layout.addWidget(icon)
+            text_layout = QVBoxLayout()
+            text_layout.setContentsMargins(0, 0, 0, 0)
+            name = QLabel(file.path.rsplit("/", 1)[-1])
+            name.setStyleSheet("color: #1f2937; font-size: 13px;")
+            path = QLabel(file.path)
+            path.setStyleSheet("color: #6b7280; font-size: 10px;")
+            text_layout.addWidget(name)
+            text_layout.addWidget(path)
+            row_layout.addLayout(text_layout, 1)
+            row.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            self.results.addItem(item)
+            self.results.setItemWidget(item, row)
+        self.match_count.setText(f"{len(matches)} match{'es' if len(matches) != 1 else ''}")
+        if matches:
+            self.results.setCurrentRow(0)
+        else:
+            self.position.clear()
+        self.adjustSize()
+
+    def _update_position(self, row: int) -> None:
+        if row >= 0:
+            self.position.setText(f"{row + 1} of {self.results.count()}")
+        else:
+            self.position.clear()
+
+    def _activate_current(self) -> None:
+        item = self.results.currentItem()
+        if item:
+            self._activate_item(item)
+
+    def _activate_item(self, item: QListWidgetItem) -> None:
+        self.selected.emit(item.data(Qt.ItemDataRole.UserRole))
+        self.accept()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self.search_input and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Down and self.results.count():
+                self.results.setCurrentRow(min(self.results.currentRow() + 1, self.results.count() - 1))
+                return True
+            if event.key() == Qt.Key.Key_Up and self.results.count():
+                self.results.setCurrentRow(max(self.results.currentRow() - 1, 0))
+                return True
+        return super().eventFilter(watched, event)
 
 
 class SpatialCanvas(QGraphicsView):
@@ -730,6 +848,8 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.view_stack, 1)
         self.escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         self.escape_shortcut.activated.connect(self.show_canvas)
+        self.quick_search_shortcut = QShortcut(QKeySequence("Meta+Shift+F"), self)
+        self.quick_search_shortcut.activated.connect(self.show_quick_search)
         self.setCentralWidget(root)
         self._set_busy(False)
 
@@ -923,6 +1043,21 @@ class MainWindow(QMainWindow):
         logger.info("Showing canvas view")
         self.view_stack.setCurrentIndex(0)
         self.canvas.focus_first_node()
+
+    def show_quick_search(self) -> None:
+        if not self.files:
+            return
+        dialog = QuickSearchDialog(self.files, self)
+        self.quick_search_dialog = dialog
+        dialog.selected.connect(self.open_diff)
+        dialog.finished.connect(lambda result: setattr(self, "quick_search_dialog", None))
+        dialog.adjustSize()
+        x = (self.width() - dialog.width()) // 2
+        dialog.move(self.mapToGlobal(QPoint(x, 68)))
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        dialog.search_input.setFocus()
 
     def select_file(self, path: str) -> None:
         logger.debug("Selecting file path=%s", path)
