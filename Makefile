@@ -40,8 +40,6 @@ doctor:
 	check_command open; \
 	check_command osascript; \
 	check_command codesign; \
-	check_command xcode-select; \
-	if xcode-select -p >/dev/null 2>&1; then pass 'Xcode Command Line Tools'; else fail 'Xcode Command Line Tools'; fi; \
 	if gh auth status >/dev/null 2>&1; then pass 'GitHub CLI authentication'; else fail 'GitHub CLI authentication'; fi; \
 	if uv run --no-sync python -c 'import PyInstaller, PySide6' >/dev/null 2>&1; then pass 'Python build dependencies'; else fail 'Python build dependencies'; fi; \
 	for asset in assets/logo.png assets/AppIcon.icns assets/filter.svg assets/copy.svg assets/external-link.svg; do \
