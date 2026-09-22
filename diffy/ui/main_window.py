@@ -212,7 +212,7 @@ class DiffViewer(QTextBrowser):
                         rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
                 rendered.append(self._thread_actions(thread))
         if self.side_by_side:
-            rendered.append('<table class="side-by-side"><tbody>')
+            rendered.append('<table class="side-by-side" width="100%"><colgroup><col width="50%"><col width="50%"></colgroup><tbody>')
             index = 0
             while index < len(file.lines):
                 line = file.lines[index]
@@ -284,7 +284,7 @@ class DiffViewer(QTextBrowser):
         comments = []
         for index, line in ((left_index, left), (right_index, right)):
             if line is None:
-                cells.append('<td><a style="background:#f8fafc;">&#160;</a></td>')
+                cells.append('<td width="50%"><a style="background:#f8fafc;">&#160;</a></td>')
                 continue
             background = "#e8f5e9" if line.kind == "added" else "#ffebee" if line.kind == "deleted" else "#ffffff"
             marker = "+" if line.kind == "added" else "-" if line.kind == "deleted" else " "
@@ -293,7 +293,7 @@ class DiffViewer(QTextBrowser):
             content = html.escape(line.content)
             if key in drafts_by_line or key in threads_by_line:
                 content = "● " + content
-            cells.append(f'<td><a href="line:{index}" style="background:{background};">{number or "":>6} {marker} {content}</a></td>')
+            cells.append(f'<td width="50%"><a href="line:{index}" style="background:{background};">{number or "":>6} {marker} {content}</a></td>')
             for draft in drafts_by_line.get(key, []):
                 comments.append(self._inline_comment("Draft", draft.body))
             for thread in threads_by_line.get(key, []):
@@ -303,7 +303,7 @@ class DiffViewer(QTextBrowser):
                 comments.append(self._thread_actions(thread))
         row = "<tr>" + "".join(cells) + "</tr>"
         if comments:
-            row += f'<tr><td colspan="2" class="side-comment">{"".join(comments)}</td></tr>'
+            row += f'<tr><td colspan="2" width="100%" class="side-comment">{"".join(comments)}</td></tr>'
         return row
 
     def _context_menu_requested(self, position) -> None:
