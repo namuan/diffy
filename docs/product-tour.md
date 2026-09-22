@@ -26,26 +26,32 @@ Press Cmd+Shift+F to search files and highlight the selected result in the canva
 
 ![Quick search](../assets/product-tour/04-quick-search.png)
 
-## Diff and inline comments
+## Unified diff and inline comments
 
-Review changed lines with inline threads, draft comments, and Reply or Resolve actions.
+Review changes in one column with inline threads, draft comments, and Reply or Resolve actions.
 
-![Diff and inline comments](../assets/product-tour/05-diff-comments.png)
+![Unified diff and inline comments](../assets/product-tour/05-diff-comments.png)
+
+## Side-by-side diff
+
+Compare old and new lines in two columns, and switch between side-by-side and unified layouts from the diff toolbar.
+
+![Side-by-side diff](../assets/product-tour/06-side-by-side-diff.png)
 
 ## Reviewer filtering
 
 Hide comments from selected reviewers while keeping the diff and canvas counts in sync.
 
-![Reviewer filtering](../assets/product-tour/06-reviewer-filter.png)
+![Reviewer filtering](../assets/product-tour/07-reviewer-filter.png)
 
 ## Configurable shortcuts and Canvas behavior
 
 Configure every keyboard shortcut and the Canvas centering duration in one dialog; settings are saved for the next launch.
 
-![Configurable shortcuts and Canvas behavior](../assets/product-tour/07-shortcuts.png)
+![Configurable shortcuts and Canvas behavior](../assets/product-tour/08-shortcuts.png)
 
 ## Submit review
 
 Submit a review summary and draft line comments as a comment, approval, or change request.
 
-![Submit review](../assets/product-tour/08-submit-review.png)
+![Submit review](../assets/product-tour/09-submit-review.png)

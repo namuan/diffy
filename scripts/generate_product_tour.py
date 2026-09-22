@@ -267,13 +267,17 @@ def generate() -> list[tuple[str, str, str]]:
         window.open_diff("src/review.py")
         process_events(application)
         capture_window(window, "05-diff-comments")
-        entries.append(("05-diff-comments.png", "Diff and inline comments", "Review changed lines with inline threads, draft comments, and Reply or Resolve actions."))
+        entries.append(("05-diff-comments.png", "Unified diff and inline comments", "Review changes in one column with inline threads, draft comments, and Reply or Resolve actions."))
+        window._set_diff_mode(True)
+        process_events(application)
+        capture_window(window, "06-side-by-side-diff")
+        entries.append(("06-side-by-side-diff.png", "Side-by-side diff", "Compare old and new lines in two columns, and switch between side-by-side and unified layouts from the diff toolbar."))
 
         menu_position = window.reviewer_filter_button.mapToGlobal(QPoint(0, window.reviewer_filter_button.height()))
         window.reviewer_filter_menu.popup(menu_position)
         process_events(application)
-        capture_window(window, "06-reviewer-filter", window.reviewer_filter_menu)
-        entries.append(("06-reviewer-filter.png", "Reviewer filtering", "Hide comments from selected reviewers while keeping the diff and canvas counts in sync."))
+        capture_window(window, "07-reviewer-filter", window.reviewer_filter_menu)
+        entries.append(("07-reviewer-filter.png", "Reviewer filtering", "Hide comments from selected reviewers while keeping the diff and canvas counts in sync."))
         window.reviewer_filter_menu.close()
         window.show_canvas()
         process_events(application)
@@ -281,7 +285,7 @@ def generate() -> list[tuple[str, str, str]]:
         def capture_shortcut_dialog() -> None:
             dialog = visible_dialog()
             if dialog:
-                capture_window(window, "07-shortcuts", dialog)
+                capture_window(window, "08-shortcuts", dialog)
                 dialog.reject()
             else:
                 QTimer.singleShot(20, capture_shortcut_dialog)
@@ -289,12 +293,12 @@ def generate() -> list[tuple[str, str, str]]:
         QTimer.singleShot(0, capture_shortcut_dialog)
         window.show_shortcut_settings()
         process_events(application)
-        entries.append(("07-shortcuts.png", "Configurable shortcuts and Canvas behavior", "Configure every keyboard shortcut and the Canvas centering duration in one dialog; settings are saved for the next launch."))
+        entries.append(("08-shortcuts.png", "Configurable shortcuts and Canvas behavior", "Configure every keyboard shortcut and the Canvas centering duration in one dialog; settings are saved for the next launch."))
 
         def capture_submit_dialog() -> None:
             dialog = visible_dialog()
             if dialog:
-                capture_window(window, "08-submit-review", dialog)
+                capture_window(window, "09-submit-review", dialog)
                 dialog.reject()
             else:
                 QTimer.singleShot(20, capture_submit_dialog)
@@ -302,7 +306,7 @@ def generate() -> list[tuple[str, str, str]]:
         QTimer.singleShot(0, capture_submit_dialog)
         window.submit_review()
         process_events(application)
-        entries.append(("08-submit-review.png", "Submit review", "Submit a review summary and draft line comments as a comment, approval, or change request."))
+        entries.append(("09-submit-review.png", "Submit review", "Submit a review summary and draft line comments as a comment, approval, or change request."))
         window.close()
     return entries
 
