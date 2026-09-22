@@ -138,6 +138,7 @@ class DiffViewer(QTextBrowser):
         self.setFont(QFont("SF Mono", 12))
         self.ui_font_family = "Helvetica"
         self.diff_font_size = 12
+        self.side_by_side = False
         self.setStyleSheet("QTextBrowser { background: #ffffff; color: #111827; border: 0; }")
         self.lines = []
         self.file_path = ""
@@ -149,6 +150,9 @@ class DiffViewer(QTextBrowser):
     def set_diff_font_size(self, font_size: int) -> None:
         self.diff_font_size = font_size
         self.setFont(QFont(self.ui_font_family, font_size))
+
+    def set_side_by_side(self, enabled: bool) -> None:
+        self.side_by_side = enabled
 
     def _inline_comment(self, author: str, body: str, resolved: bool = False) -> str:
         body_html = html.escape(body).replace("\n", "<br>")
@@ -207,27 +211,48 @@ class DiffViewer(QTextBrowser):
                     if comment.author not in hidden_reviewers:
                         rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
                 rendered.append(self._thread_actions(thread))
-        for index, line in enumerate(file.lines):
-            old = str(line.old_line) if line.old_line is not None else ""
-            new = str(line.new_line) if line.new_line is not None else ""
-            marker = "+" if line.kind == "added" else "-" if line.kind == "deleted" else " "
-            prefix = f"{old:>6} {new:>6} {marker} "
-            value = html.escape(line.content)
-            background = "#e8f5e9" if line.kind == "added" else "#ffebee" if line.kind == "deleted" else "#ffffff"
-            key = (line.side, line.line)
-            if key in drafts_by_line or key in threads_by_line:
-                value = "● " + value
-            rendered.append(
-                f'<div class="diff-line"><a href="line:{index}" style="color:#374151;background:{background};">'
-                f"{html.escape(prefix)}{value}</a></div>"
-            )
-            for draft in drafts_by_line.get(key, []):
-                rendered.append(self._inline_comment("Draft", draft.body))
-            for thread in threads_by_line.get(key, []):
-                for comment in thread.comments:
-                    if comment.author not in hidden_reviewers:
-                        rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
-                rendered.append(self._thread_actions(thread))
+        if self.side_by_side:
+            rendered.append('<table class="side-by-side"><tbody>')
+            index = 0
+            while index < len(file.lines):
+                line = file.lines[index]
+                if line.kind == "context":
+                    rendered.append(self._side_by_side_row(index, line, index, line, drafts_by_line, threads_by_line, hidden_reviewers))
+                    index += 1
+                    continue
+                end = index
+                while end < len(file.lines) and file.lines[end].kind != "context":
+                    end += 1
+                deletions = [(item_index, item) for item_index, item in enumerate(file.lines[index:end], index) if item.kind == "deleted"]
+                additions = [(item_index, item) for item_index, item in enumerate(file.lines[index:end], index) if item.kind == "added"]
+                for offset in range(max(len(deletions), len(additions))):
+                    left = deletions[offset] if offset < len(deletions) else (None, None)
+                    right = additions[offset] if offset < len(additions) else (None, None)
+                    rendered.append(self._side_by_side_row(left[0], left[1], right[0], right[1], drafts_by_line, threads_by_line, hidden_reviewers))
+                index = end
+            rendered.append("</tbody></table>")
+        else:
+            for index, line in enumerate(file.lines):
+                old = str(line.old_line) if line.old_line is not None else ""
+                new = str(line.new_line) if line.new_line is not None else ""
+                marker = "+" if line.kind == "added" else "-" if line.kind == "deleted" else " "
+                prefix = f"{old:>6} {new:>6} {marker} "
+                value = html.escape(line.content)
+                background = "#e8f5e9" if line.kind == "added" else "#ffebee" if line.kind == "deleted" else "#ffffff"
+                key = (line.side, line.line)
+                if key in drafts_by_line or key in threads_by_line:
+                    value = "● " + value
+                rendered.append(
+                    f'<div class="diff-line"><a href="line:{index}" style="color:#374151;background:{background};">'
+                    f"{html.escape(prefix)}{value}</a></div>"
+                )
+                for draft in drafts_by_line.get(key, []):
+                    rendered.append(self._inline_comment("Draft", draft.body))
+                for thread in threads_by_line.get(key, []):
+                    for comment in thread.comments:
+                        if comment.author not in hidden_reviewers:
+                            rendered.append(self._inline_comment(comment.author, comment.body, thread.resolved))
+                    rendered.append(self._thread_actions(thread))
         if not rendered:
             rendered.append('<div class="empty-diff">No textual patch is available for this file.</div>')
         self.lines = file.lines
@@ -237,6 +262,10 @@ class DiffViewer(QTextBrowser):
             "body { background: #ffffff; color: #111827; margin: 0; }"
             f".diff-line {{ font-family: '{html.escape(self.ui_font_family)}'; font-size: {self.diff_font_size}pt; white-space: pre; }}"
             ".diff-line a { display: block; padding: 3px 8px; text-decoration: none; }"
+            f".side-by-side {{ width: 100%; table-layout: fixed; border-collapse: collapse; font-family: '{html.escape(self.ui_font_family)}'; font-size: {self.diff_font_size}pt; }}"
+            ".side-by-side td { width: 50%; padding: 0; vertical-align: top; border-right: 1px solid #e5e7eb; }"
+            ".side-by-side td a { display: block; padding: 3px 8px; color: #374151; text-decoration: none; white-space: pre; overflow-x: hidden; }"
+            ".side-by-side .side-comment { border: 0; }"
             f".file-comments-header {{ margin: 8px 14px 4px 14px; color: #86198f; font-family: '{html.escape(self.ui_font_family)}'; font-size: {self.diff_font_size}pt; font-weight: 700; }}"
             f".inline-comment {{ margin: 4px 14px 10px 78px; padding: 9px 12px; border-left: 3px solid #c026d3; border-radius: 4px; background: #faf5ff; color: #312e81; font-family: '{html.escape(self.ui_font_family)}'; font-size: {self.diff_font_size}pt; white-space: normal; }}"
             ".inline-comment.resolved { border-left-color: #94a3b8; background: #f8fafc; color: #475569; }"
@@ -249,6 +278,33 @@ class DiffViewer(QTextBrowser):
             "</style>"
             + "".join(rendered)
         )
+
+    def _side_by_side_row(self, left_index, left, right_index, right, drafts_by_line, threads_by_line, hidden_reviewers) -> str:
+        cells = []
+        comments = []
+        for index, line in ((left_index, left), (right_index, right)):
+            if line is None:
+                cells.append('<td><a style="background:#f8fafc;">&#160;</a></td>')
+                continue
+            background = "#e8f5e9" if line.kind == "added" else "#ffebee" if line.kind == "deleted" else "#ffffff"
+            marker = "+" if line.kind == "added" else "-" if line.kind == "deleted" else " "
+            number = line.old_line if line.side == "LEFT" else line.new_line
+            key = (line.side, line.line)
+            content = html.escape(line.content)
+            if key in drafts_by_line or key in threads_by_line:
+                content = "● " + content
+            cells.append(f'<td><a href="line:{index}" style="background:{background};">{number or "":>6} {marker} {content}</a></td>')
+            for draft in drafts_by_line.get(key, []):
+                comments.append(self._inline_comment("Draft", draft.body))
+            for thread in threads_by_line.get(key, []):
+                for comment in thread.comments:
+                    if comment.author not in hidden_reviewers:
+                        comments.append(self._inline_comment(comment.author, comment.body, thread.resolved))
+                comments.append(self._thread_actions(thread))
+        row = "<tr>" + "".join(cells) + "</tr>"
+        if comments:
+            row += f'<tr><td colspan="2" class="side-comment">{"".join(comments)}</td></tr>'
+        return row
 
     def _context_menu_requested(self, position) -> None:
         value = self.anchorAt(position)
@@ -1308,6 +1364,17 @@ class MainWindow(QMainWindow):
         self.back_button.clicked.connect(self.show_canvas)
         diff_toolbar.addWidget(self.back_button)
         diff_toolbar.addStretch()
+        self.unified_diff_button = QPushButton("Unified")
+        self.unified_diff_button.setCheckable(True)
+        self.unified_diff_button.setChecked(True)
+        self.unified_diff_button.setToolTip("Show changes in one column")
+        self.side_by_side_diff_button = QPushButton("Side by side")
+        self.side_by_side_diff_button.setCheckable(True)
+        self.side_by_side_diff_button.setToolTip("Compare old and new lines in two columns")
+        self.unified_diff_button.clicked.connect(lambda: self._set_diff_mode(False))
+        self.side_by_side_diff_button.clicked.connect(lambda: self._set_diff_mode(True))
+        diff_toolbar.addWidget(self.unified_diff_button)
+        diff_toolbar.addWidget(self.side_by_side_diff_button)
         content_layout.addLayout(diff_toolbar)
         self.diff_viewer = DiffViewer()
         self.diff_viewer.set_ui_font(self.font_family)
@@ -1600,6 +1667,13 @@ class MainWindow(QMainWindow):
             draft_counts[draft.path] = draft_counts.get(draft.path, 0) + 1
         self.canvas.set_files(self.files, self.viewed, draft_counts, self._comment_counts())
         self.show_canvas()
+
+    def _set_diff_mode(self, side_by_side: bool) -> None:
+        self.unified_diff_button.setChecked(not side_by_side)
+        self.side_by_side_diff_button.setChecked(side_by_side)
+        self.diff_viewer.set_side_by_side(side_by_side)
+        if self.selected_file:
+            self.diff_viewer.show_file(self.selected_file, self.drafts, self.threads, self.hidden_reviewers)
 
     def open_diff(self, path: str) -> None:
         logger.info("Opening focused diff from canvas path=%s", path)
