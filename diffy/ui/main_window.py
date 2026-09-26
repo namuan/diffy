@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -357,6 +358,7 @@ class ShortcutDialog(QDialog):
         canvas_font_size: int,
         diff_font_size: int,
         parent: QWidget | None = None,
+        gh_executable: str = "",
     ):
         super().__init__(parent)
         self.setWindowTitle("Settings")
@@ -387,6 +389,15 @@ class ShortcutDialog(QDialog):
         form.addRow("Application font", self.font_selector)
         form.addRow("Canvas font size", self.canvas_font_size)
         form.addRow("Diff view font size", self.diff_font_size)
+        self.gh_executable = QLineEdit(gh_executable)
+        self.gh_executable.setPlaceholderText("Automatic (gh on PATH)")
+        self.gh_executable.setClearButtonEnabled(True)
+        gh_row = QHBoxLayout()
+        gh_row.addWidget(self.gh_executable)
+        browse_button = QPushButton("Browse…")
+        browse_button.clicked.connect(self._browse_gh)
+        gh_row.addWidget(browse_button)
+        form.addRow("GitHub CLI executable", gh_row)
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
         reset_button = buttons.addButton("Restore defaults", QDialogButtonBox.ButtonRole.ResetRole)
@@ -400,7 +411,24 @@ class ShortcutDialog(QDialog):
         for shortcut_id, default in SHORTCUT_DEFAULTS.items():
             self.edits[shortcut_id].setKeySequence(QKeySequence(default))
 
+    def _browse_gh(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select GitHub CLI executable", self.gh_executable.text().strip()
+        )
+        if path:
+            self.gh_executable.setText(path)
+
     def _accept(self) -> None:
+        executable = self.gh_executable.text().strip()
+        if executable:
+            path = Path(executable).expanduser()
+            if not path.is_absolute() or not path.is_file() or not os.access(path, os.X_OK):
+                QMessageBox.warning(
+                    self, "Invalid GitHub CLI executable",
+                    "Select an executable file using its absolute path, or clear the field for automatic detection.",
+                )
+                return
+            self.gh_executable.setText(str(path))
         values = {
             shortcut_id: edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
             for shortcut_id, edit in self.edits.items()
@@ -1221,7 +1249,8 @@ class MainWindow(QMainWindow):
     ):
         super().__init__()
         logger.info("Creating main window initial_ref_present=%s", bool(initial_ref))
-        self.client = client or GHClient()
+        self.settings = QSettings("namuan", "diffy")
+        self.client = client or GHClient(self.settings.value("github/executable", "", type=str) or "gh")
         self.persistence = persistence or Persistence()
         self.thread_pool = QThreadPool.globalInstance()
         self.pull_request: PullRequest | None = None
@@ -1233,7 +1262,6 @@ class MainWindow(QMainWindow):
         self.selected_line_index: int | None = None
         self.selected_thread: ReviewThread | None = None
         self.hidden_reviewers: set[str] = set()
-        self.settings = QSettings("namuan", "diffy")
         self.center_duration = self._load_center_duration()
         self.canvas_font_size = self._load_font_size("canvas", 15)
         self.diff_font_size = self._load_font_size("diff", 12)
@@ -1464,9 +1492,13 @@ class MainWindow(QMainWindow):
             self.canvas_font_size,
             self.diff_font_size,
             self,
+            gh_executable=self.settings.value("github/executable", "", type=str),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
+        executable = dialog.gh_executable.text().strip()
+        self.settings.setValue("github/executable", executable)
+        self.client.executable = executable or "gh"
         self.shortcut_sequences = dialog.values()
         self.center_duration = dialog.centering_duration()
         self.font_family = dialog.font_family()

@@ -53,7 +53,14 @@ class GHClient:
             )
         except FileNotFoundError as error:
             logger.exception("GitHub CLI executable not found")
-            raise GHClientError("The GitHub CLI was not found on PATH.") from error
+            raise GHClientError(
+                "The GitHub CLI executable was not found. Open Settings and select the GitHub CLI executable using Browse."
+            ) from error
+        except PermissionError as error:
+            logger.exception("GitHub CLI executable cannot be executed")
+            raise GHClientError(
+                "The GitHub CLI executable cannot be executed. Open Settings and select an executable GitHub CLI file."
+            ) from error
         except subprocess.TimeoutExpired as error:
             logger.error("GitHub CLI command timed out command=%s", command)
             raise GHClientError("The GitHub CLI request timed out.") from error
