@@ -397,6 +397,9 @@ class ShortcutDialog(QDialog):
         browse_button = QPushButton("Browse…")
         browse_button.clicked.connect(self._browse_gh)
         gh_row.addWidget(browse_button)
+        self.verify_gh_button = QPushButton("Verify")
+        self.verify_gh_button.clicked.connect(self._verify_gh)
+        gh_row.addWidget(self.verify_gh_button)
         form.addRow("GitHub CLI executable", gh_row)
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
@@ -417,6 +420,57 @@ class ShortcutDialog(QDialog):
         )
         if path:
             self.gh_executable.setText(path)
+
+    def _verify_gh(self) -> None:
+        executable = self.gh_executable.text().strip() or "gh"
+        self.verify_gh_button.setEnabled(False)
+        self.verify_gh_button.setText("Verifying…")
+        worker = Worker(GHClient(executable).auth_status)
+        worker.signals.result.connect(self._gh_verification_succeeded)
+        worker.signals.error.connect(self._gh_verification_failed)
+        self._verification_worker = worker
+        QThreadPool.globalInstance().start(worker)
+
+    def _gh_verification_succeeded(self, output: str) -> None:
+        self.verify_gh_button.setEnabled(True)
+        self.verify_gh_button.setText("Verify")
+        QMessageBox.information(self, "GitHub CLI verified", output.strip() or "GitHub CLI is authenticated and reachable.")
+
+    def _gh_verification_failed(self, error: str) -> None:
+        self.verify_gh_button.setEnabled(True)
+        self.verify_gh_button.setText("Verify")
+        self._offer_login_shell_wrapper(error)
+
+    def _offer_login_shell_wrapper(self, error: str) -> None:
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Warning)
+        message.setWindowTitle("GitHub CLI verification failed")
+        message.setText(error)
+        message.setInformativeText("You can continue without a wrapper, or create one that starts gh through a zsh login shell.")
+        create_button = message.addButton("Create and use wrapper…", QMessageBox.ButtonRole.AcceptRole)
+        message.addButton("Continue without wrapper", QMessageBox.ButtonRole.RejectRole)
+        message.exec()
+        if message.clickedButton() is not create_button:
+            return
+        directory = QFileDialog.getExistingDirectory(self, "Choose a directory for the gh wrapper")
+        if not directory:
+            return
+        wrapper = Path(directory).expanduser() / "diffy-gh"
+        if wrapper.exists() and QMessageBox.question(
+            self,
+            "Replace wrapper?",
+            f"{wrapper} already exists. Replace it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            wrapper = GHClient.create_login_shell_wrapper(directory)
+        except (GHClientError, OSError) as creation_error:
+            QMessageBox.critical(self, "Unable to create wrapper", str(creation_error))
+            return
+        self.gh_executable.setText(str(wrapper))
+        self._verify_gh()
 
     def _accept(self) -> None:
         executable = self.gh_executable.text().strip()

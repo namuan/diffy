@@ -5,6 +5,7 @@ import os
 import subprocess
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from diffy.core.logging import get_logger
@@ -34,6 +35,17 @@ class LoadedPullRequest:
 class GHClient:
     def __init__(self, executable: str = "gh"):
         self.executable = executable
+
+    @staticmethod
+    def create_login_shell_wrapper(directory: str | Path) -> Path:
+        directory_path = Path(directory).expanduser()
+        if not directory_path.is_dir():
+            raise GHClientError("Select an existing directory for the wrapper script.")
+        wrapper = directory_path / "diffy-gh"
+        wrapper.write_text("#!/bin/sh\nexec /bin/zsh -lc 'exec gh \"$@\"' diffy-gh \"$@\"\n", encoding="utf-8")
+        wrapper.chmod(0o755)
+        logger.info("Created GitHub CLI login-shell wrapper path=%s", wrapper)
+        return wrapper
 
     def _run(self, arguments: list[str], input_text: str | None = None, timeout: int = 60) -> str:
         environment = os.environ.copy()
