@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
 from diffy.core.logging import get_logger
 from diffy.core.models import ChangedFile, DraftComment, PullRequest, PullRequestRef, ReviewThread
 from diffy.services.anchoring import new_draft, reattach_draft
+from diffy.services.ast_parser import parse_file_changes
 from diffy.services.diff_parser import parse_unified_diff
 from diffy.services.gh_client import GHClient, GHClientError, LoadedPullRequest
 from diffy.services.persistence import Persistence
@@ -729,6 +730,36 @@ class SpatialCanvas(QGraphicsView):
             resolved_count += child_resolved
         return open_count, resolved_count
 
+    def _ast_badge(self, file: ChangedFile) -> str:
+        if file.ast_status == "parsed":
+            return f"AST {len(file.ast_changes)}"
+        if file.ast_status == "unsupported":
+            return "AST —"
+        if file.ast_status in {"unavailable", "pending"}:
+            return "AST ?"
+        if file.ast_status == "partial":
+            return f"AST ~{len(file.ast_changes)}"
+        return "AST !"
+
+    def _ast_tooltip(self, file: ChangedFile) -> str:
+        if file.ast_status == "unsupported":
+            return f"AST unavailable: unsupported language for {file.path}"
+        if file.ast_status == "unavailable":
+            return f"AST unavailable: source snapshot could not be retrieved for {file.path}"
+        if file.ast_status == "error":
+            return f"AST unavailable: parsing failed for {file.path}"
+        if file.ast_status == "partial":
+            return f"Partial syntax tree for {file.path}; results may be incomplete"
+        if not file.ast_changes:
+            return f"No structural changes detected in {file.path}"
+        lines = [f"{file.language} structural changes:"]
+        for change in file.ast_changes[:20]:
+            location = change.new_start_line or change.old_start_line or 0
+            lines.append(f"{change.change_kind}: {change.node_type} {change.name} · line {location}")
+        if len(file.ast_changes) > 20:
+            lines.append(f"and {len(file.ast_changes) - 20} more")
+        return "\n".join(lines)
+
     def _render_tree(self, fit: bool = True) -> None:
         self.scene.clear()
         self.node_widgets = []
@@ -744,7 +775,7 @@ class SpatialCanvas(QGraphicsView):
         def badge_width(value: str) -> int:
             return badge_metrics.horizontalAdvance(value) + 12
 
-        def estimated_width(icon: str, name: str, status: str | None, additions: int, deletions: int, comment_counts: tuple[int, int]) -> int:
+        def estimated_width(icon: str, name: str, status: str | None, additions: int, deletions: int, comment_counts: tuple[int, int], ast_badge: str | None = None) -> int:
             icon_width = metrics.horizontalAdvance(icon)
             name_width = metrics.horizontalAdvance(name)
             status_width = 34 if status else 0
@@ -756,6 +787,8 @@ class SpatialCanvas(QGraphicsView):
                 badges.append(badge_width(f"● {open_count}"))
             if resolved_count:
                 badges.append(badge_width(f"● {resolved_count}"))
+            if ast_badge is not None:
+                badges.append(badge_width(ast_badge))
             child_count = 2 + bool(status) + len(badges)
             spacing = max(0, child_count - 1) * 8
             return max(220, 28 + icon_width + name_width + status_width + sum(badges) + spacing)
@@ -796,6 +829,7 @@ class SpatialCanvas(QGraphicsView):
                 file.additions,
                 file.deletions,
                 self.comment_counts.get(file.path, (0, 0)),
+                self._ast_badge(file),
             )
 
         column_widths: dict[int, int] = {0: entry_width(root_entry)}
@@ -843,6 +877,8 @@ class SpatialCanvas(QGraphicsView):
             style: str,
             tooltip: str,
             callback=None,
+            ast_badge: str | None = None,
+            ast_tooltip: str = "",
         ) -> None:
             node = TreeNodeWidget(
                 icon,
@@ -859,6 +895,8 @@ class SpatialCanvas(QGraphicsView):
                 self.shortcuts,
                 self.font_family,
                 self.font_size,
+                ast_badge,
+                ast_tooltip,
             )
             if callback:
                 node.clicked.connect(callback)
@@ -915,7 +953,7 @@ class SpatialCanvas(QGraphicsView):
                 status = {"modified": "M", "added": "A", "deleted": "D", "renamed": "R"}.get(file.status, "M")
                 filename = file.path.rsplit("/", 1)[-1]
                 comment_counts = self.comment_counts.get(file.path, (0, 0))
-                width = estimated_width("📄", filename, status, file.additions, file.deletions, comment_counts)
+                width = estimated_width("📄", filename, status, file.additions, file.deletions, comment_counts, self._ast_badge(file))
                 if parent_position is not None:
                     add_connector(parent_position[0], parent_position[1], parent_position[2], x, y)
                 add_node(
@@ -931,6 +969,8 @@ class SpatialCanvas(QGraphicsView):
                     file_style,
                     file.path,
                     lambda path=file.path: self.file_selected.emit(path),
+                    self._ast_badge(file),
+                    self._ast_tooltip(file),
                 )
             children = [] if kind == "file" or (kind == "folder" and value["path"] in self.collapsed_folders) else child_entries(value)
             cursor = top_row
@@ -1719,8 +1759,12 @@ class MainWindow(QMainWindow):
     def _load_finished(self, loaded: LoadedPullRequest) -> None:
         logger.info("Pull request load completed ref=%s", loaded.pull_request.ref.key)
         parsed = parse_unified_diff(loaded.diff_text)
+        files = parsed.files
+        for file in files:
+            old_source, new_source = loaded.source_snapshots.get(file.path, (None, None))
+            parse_file_changes(file, old_source, new_source)
         self.pull_request = loaded.pull_request
-        self.files = parsed.files
+        self.files = files
         self.threads = loaded.threads
         self._populate_reviewer_menu()
         self.persistence.cache_pull_request(self.pull_request, loaded.diff_text)

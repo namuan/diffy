@@ -26,6 +26,8 @@ class TreeNodeWidget(QWidget):
         shortcuts: dict[str, QKeySequence] | None = None,
         font_family: str = "Helvetica",
         font_size: int = 15,
+        ast_badge: str | None = None,
+        ast_tooltip: str = "",
     ):
         super().__init__()
         self.setObjectName("treeNode")
@@ -35,6 +37,7 @@ class TreeNodeWidget(QWidget):
         self.node_open_comment_count = open_comment_count
         self.node_resolved_comment_count = resolved_comment_count
         self.node_comment_count = open_comment_count + resolved_comment_count
+        self.node_ast_change_count = ast_badge
         self.shortcuts = shortcuts or {}
         self.setFont(QFont(font_family, font_size))
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -80,6 +83,15 @@ class TreeNodeWidget(QWidget):
             deletions_label.setStyleSheet("background: #fee2e2; color: #b91c1c; border: 0; border-radius: 9px; padding: 2px 6px; font-size: 13px; font-weight: 600;")
             layout.addWidget(deletions_label)
 
+        if ast_badge is not None:
+            ast_label = QLabel(ast_badge)
+            ast_label.setObjectName("astBadge")
+            ast_label.setToolTip(ast_tooltip or "Structural changes parsed from the file")
+            ast_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+            ast_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+            ast_label.setStyleSheet("background: #ede9fe; color: #6d28d9; border: 0; border-radius: 9px; padding: 2px 6px; font-size: 12px; font-weight: 600;")
+            layout.addWidget(ast_label)
+
         if open_comment_count:
             open_comment_label = QLabel(f"● {open_comment_count}")
             open_comment_label.setToolTip("Open comments")
@@ -95,7 +107,8 @@ class TreeNodeWidget(QWidget):
 
         layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         for child in self.findChildren(QLabel):
-            child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            if child.objectName() != "astBadge":
+                child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
     def focusInEvent(self, event) -> None:
         super().focusInEvent(event)

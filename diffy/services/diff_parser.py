@@ -103,7 +103,7 @@ def parse_unified_diff(text: str) -> ParsedDiff:
                     old_line += 1
                     new_line += 1
                 cursor += 1
-        files.append(ChangedFile(path, status, additions, deletions, "\n".join(section), file_lines))
+        files.append(ChangedFile(path, status, additions, deletions, "\n".join(section), file_lines, old_path=old_path))
         logger.debug("Parsed file path=%s status=%s additions=%d deletions=%d lines=%d", path, status, additions, deletions, len(file_lines))
         index = section_end
     logger.info("Parsed unified diff files=%d", len(files))
