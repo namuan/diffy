@@ -27,6 +27,8 @@ def build() -> None:
         f"--name={app_name}",
         f"--osx-bundle-identifier={bundle_id}",
         "--target-architecture=arm64",
+        "--collect-all=tree_sitter_language_pack",
+        "--collect-all=tree_sitter",
         f"--add-data={root_dir / 'assets'}:assets",
         str(entry_point),
     ]

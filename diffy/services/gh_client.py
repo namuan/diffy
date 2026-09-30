@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from diffy.core.logging import get_logger
 from diffy.core.models import (
@@ -30,6 +32,7 @@ class LoadedPullRequest:
     pull_request: PullRequest
     diff_text: str
     threads: list[ReviewThread]
+    source_snapshots: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
 
 
 class GHClient:
@@ -92,13 +95,42 @@ class GHClient:
         logger.info("Loading pull request ref=%s", ref.key)
         metadata = self._load_metadata(ref)
         diff_text = self._run(["pr", "diff", ref.url], timeout=120)
+        from diffy.services.ast_parser import language_for_path
+        from diffy.services.diff_parser import parse_unified_diff
+
+        changed_files = parse_unified_diff(diff_text).files
+        source_snapshots = {}
+        for file in changed_files:
+            if language_for_path(file.path) is None:
+                source_snapshots[file.path] = (None, None)
+                continue
+            source_snapshots[file.path] = (
+                None if file.status == "added" else self._load_file_source(ref, file.old_path or file.path, metadata.base_sha),
+                None if file.status == "deleted" else self._load_file_source(ref, file.path, metadata.head_sha),
+            )
         try:
             threads = self._load_threads(ref)
         except GHClientError as error:
             logger.warning("Review thread loading failed ref=%s error=%s", ref.key, error)
             threads = []
         logger.info("Loaded pull request ref=%s diff_bytes=%d threads=%d", ref.key, len(diff_text.encode("utf-8")), len(threads))
-        return LoadedPullRequest(metadata, diff_text, threads)
+        return LoadedPullRequest(metadata, diff_text, threads, source_snapshots)
+
+    def _load_file_source(self, ref: PullRequestRef, path: str, revision: str) -> str | None:
+        encoded_path = quote(path, safe="/")
+        try:
+            output = self._run(
+                ["api", f"repos/{ref.owner}/{ref.repository}/contents/{encoded_path}", "-X", "GET", "-f", f"ref={revision}"],
+                timeout=30,
+            )
+            payload = json.loads(output)
+            if payload.get("encoding") != "base64" or payload.get("size", 0) > 1_000_000:
+                logger.info("Skipping unavailable or oversized source path=%s revision=%s", path, revision[:12])
+                return None
+            return base64.b64decode(payload.get("content", "")).decode("utf-8")
+        except (GHClientError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
+            logger.info("Source snapshot unavailable path=%s revision=%s error=%s", path, revision[:12], error)
+            return None
 
     def _load_metadata(self, ref: PullRequestRef) -> PullRequest:
         raw = self._run(

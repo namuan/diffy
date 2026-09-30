@@ -71,6 +71,17 @@ class DiffLine:
 
 
 @dataclass
+class ASTChange:
+    node_type: str
+    name: str
+    change_kind: str
+    old_start_line: int | None
+    old_end_line: int | None
+    new_start_line: int | None
+    new_end_line: int | None
+
+
+@dataclass
 class ChangedFile:
     path: str
     status: str
@@ -78,6 +89,10 @@ class ChangedFile:
     deletions: int
     patch: str
     lines: list[DiffLine] = field(default_factory=list)
+    language: str | None = None
+    ast_status: str = "pending"
+    ast_changes: list[ASTChange] = field(default_factory=list)
+    old_path: str | None = None
 
     @property
     def change_count(self) -> int:
